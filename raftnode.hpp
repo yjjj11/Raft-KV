@@ -1,0 +1,98 @@
+#pragma once
+#include <logger.hpp>
+#include <mrpc/client.hpp>
+#include <mrpc/server.hpp>
+#include <vector>
+#include <string>
+#include <memory>
+#include <unordered_map>
+#include <mutex>
+#include <atomic>
+#include <thread>
+#include <chrono>
+#include "struct.hpp"
+using namespace std::chrono_literals;
+using namespace mrpc;
+class RaftNode {
+public:
+    RaftNode(int node_id, const std::string& ip, int port, 
+             const std::vector<std::pair<std::string, int>>& peers);
+    ~RaftNode();
+
+    // 启动节点
+    void start();
+    
+    // 停止节点
+    void stop();
+
+    // RPC处理函数
+    VoteReply handle_vote_request(const VoteRequest& request);
+    AppendReply handle_append_request(const AppendRequest& request);
+
+private:
+    // 节点基本信息
+    int node_id_;
+    std::string ip_;
+    int port_;
+    
+    // 集群配置
+    std::vector<std::pair<std::string, int>> peers_;  // 存储其他节点的地址信息
+    std::vector<std::shared_ptr<mrpc::connection>> peer_connections_;  // 连接到其他节点的连接
+    
+    // Raft核心状态
+    std::atomic<State> state_{FOLLOWER};
+    std::atomic<int32_t> current_term_{0};
+    std::atomic<int32_t> voted_for_{-1};  // -1表示未投票
+    
+    // 日志相关
+    std::vector<LogEntry> log_;
+    std::atomic<int32_t> commit_index_{0};
+    std::atomic<int32_t> last_applied_{0};
+    
+    // 领导者特有状态
+    std::vector<int32_t> next_index_;   // 发送给每个节点的下一个日志索引
+    std::vector<int32_t> match_index_;  // 每个节点已复制的最高日志索引
+    
+    // 控制变量
+    std::atomic<bool> running_{false};
+    std::thread server_thread_;
+    std::thread election_thread_;
+    std::thread heartbeat_thread_;
+    
+    // 互斥锁
+    mutable std::mutex mutex_;
+    
+    // RPC服务器和客户端
+    mrpc::server& server_;
+    mrpc::client& client_;
+
+    // 定时器相关
+    std::chrono::steady_clock::time_point last_heartbeat_time_;
+    
+    // 内部辅助函数
+    void run_election_timeout();
+    void send_heartbeats();
+    void setup_rpc_handlers();
+    void connect_to_peers();
+    
+    // 状态转换
+    void become_follower(int32_t new_term);
+    void become_candidate();
+    void become_leader();
+    
+    // RPC调用辅助函数
+    bool send_vote_request(const VoteRequest& request, size_t peer_idx, VoteReply& reply);
+    bool send_append_entries(const AppendRequest& request, size_t peer_idx, AppendReply& reply);
+    
+    // 日志管理
+    void append_log(const LogEntry& entry);
+    int32_t get_last_log_index() const;
+    int32_t get_last_log_term() const;
+    
+    // 持久化相关（模拟）
+    void save_state();
+    void load_state();
+    
+    // 安全检查
+    bool is_log_up_to_date(int32_t last_log_term, int32_t last_log_index) const;
+};
