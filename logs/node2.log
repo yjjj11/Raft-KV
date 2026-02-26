@@ -1,0 +1,8 @@
+[2026-02-26 21:06:55.154] [info] Cluster peers:
+[2026-02-26 21:06:55.154] [info] 127.0.0.1:8001
+[2026-02-26 21:06:55.154] [info] 127.0.0.1:8000
+[2026-02-26 21:06:55.154] [info] Starting Raft node...
+[INFO] zookeeper_init success! connect to: {}
+[INFO] ZK session connected success!
+[2026-02-26 21:06:55.161] [debug] Raft node 2 started on 127.0.0.1:8002
+[2026-02-26 21:06:55.161] [info] server listening on: 127.0.0.1:8002

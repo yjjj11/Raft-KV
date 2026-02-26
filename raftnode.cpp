@@ -1,3 +1,4 @@
+#pragma once
 #include "raftnode.hpp"
 #include <iostream>
 #include <random>
@@ -23,7 +24,7 @@ RaftNode::RaftNode(int node_id, const std::string& ip, int port,
     // 初始化选举超时计时器
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::uniform_int_distribution<> dis(300, 600);  // 300-600ms随机选举超时
+    std::uniform_int_distribution<> dis(3000, 6000);  // 300-600ms随机选举超时
     last_heartbeat_time_ = std::chrono::steady_clock::now() - 
                           std::chrono::milliseconds(dis(gen));
 }
@@ -46,9 +47,36 @@ void RaftNode::start() {
     // 启动选举超时监控线程
     election_thread_ = std::thread(&RaftNode::run_election_timeout, this);
     
-    std::cout << "Raft node " << node_id_ << " started on " << ip_ << ":" << port_ << std::endl;
+    spdlog::debug("Raft node {} started on {}:{}", node_id_, ip_, port_);
 }
 
 RaftNode::~RaftNode() {
     stop();
+}
+
+void RaftNode::stop() {
+    if (!running_) return;
+    
+    std::cout << "Stopping Raft node " << node_id_ << "..." << std::endl;
+    
+    running_ = false;
+    
+    // 关闭服务器
+    server_.shutdown();
+    
+    // 等待线程结束
+    if (server_thread_.joinable()) {
+        server_thread_.join();
+    }
+    if (election_thread_.joinable()) {
+        election_thread_.join();
+    }
+    if (heartbeat_thread_.joinable()) {
+        heartbeat_thread_.join();
+    }
+    
+    // 关闭客户端连接
+    client_.shutdown();
+    
+    std::cout << "Raft node " << node_id_ << " stopped." << std::endl;
 }

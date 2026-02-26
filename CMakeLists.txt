@@ -1,9 +1,13 @@
 cmake_minimum_required(VERSION 3.13)
 project(external_demo)
 
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    add_compile_options(-w)  # -w 是屏蔽所有警告，-Wall 是开启所有警告，-Wno-xxx 是屏蔽特定警告
+endif()
+
 add_definitions(-DASIO_STANDALONE -DRPC_USE_LOG -D_LOG_CONSOLE)
 
-add_definitions(-DSPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_OFF)
+# add_definitions(-DSPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_OFF)
 
 # ========== 核心指令：强制生成compile_commands.json ==========
 # FORCE参数确保覆盖任何已有配置，每次cmake都生成
@@ -34,9 +38,18 @@ include_directories(
     ${WLOG_INCLUDE_DIR}     # wlog 头文件目录（从子目录继承）
     ${NLOHMANN_INCLUDE_DIR} # nlohmann/json 头文件目录（从子目录继承）
 )
+message(STATUS "MRPC_SRC_FILES in main: ${MRPC_SRC_FILES}")
+foreach(file ${MRPC_SRC_FILES})
+    message(STATUS "  - ${file}")
+endforeach()
 
 # 创建可执行文件
-add_executable(main main.cpp)
+add_executable(main
+     main.cpp
+     raftnode.cpp
+     ${MRPC_SRC_FILES} 
+     ./Asio_mrpc/include/mrpc/ZookeeperUtil.cpp
+)
 
 target_link_libraries(main 
     PRIVATE  # 推荐添加PRIVATE，明确依赖作用域

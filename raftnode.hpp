@@ -70,10 +70,12 @@ private:
     std::chrono::steady_clock::time_point last_heartbeat_time_;
     
     // 内部辅助函数
-    void run_election_timeout();
+    void run_election_timeout() {}
     void send_heartbeats();
-    void setup_rpc_handlers();
-    void connect_to_peers();
+    void setup_rpc_handlers() {}
+    void connect_to_peers() {
+        
+    }
     
     // 状态转换
     void become_follower(int32_t new_term);
@@ -91,7 +93,7 @@ private:
     
     // 持久化相关（模拟）
     void save_state();
-    void load_state();
+    void load_state(){}
     
     // 安全检查
     bool is_log_up_to_date(int32_t last_log_term, int32_t last_log_index) const;
