@@ -71,7 +71,7 @@ class client final : private asio::noncopyable {
             }
         }
         is_running_ = true;
-        LOG_INFO("client runing ...");
+        LOG_INFO("------------------------------client runing ----------------------------");
 
         zk_client_.start();
         zk_client_.setNodeChangeCallback(
@@ -81,7 +81,8 @@ class client final : private asio::noncopyable {
         );
 
         // 3. 初始化拉取服务列表（首次加载）
-        refreshAllServiceList();
+        // refreshAllServiceList();
+        zk_servers_ = zk_client_.getServiceList(root_path);
     }
 
     void onZkNodeChanged(const std::string& path, ZkNodeEventType type, const std::string& node) {

@@ -55,7 +55,7 @@ class server final : private asio::noncopyable {
             endpoint.address(asio::ip::address_v4::from_string(local_ip_));
             acceptor_ = std::make_shared<asio::ip::tcp::acceptor>(main_iocontext(), endpoint);
 
-            LOG_INFO("server listening on: {}", endpoint);
+            // LOG_INFO("server listening on: {}", endpoint);
         } catch (asio::system_error& e) {
             LOG_ERROR("accept error: {} code: {}", e.what(), e.code());
             return false;

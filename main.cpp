@@ -8,9 +8,12 @@
 #include "spdlog/sinks/basic_file_sink.h"
 // 全局标志，用于通知主线程退出
 std::atomic<bool> g_running{true};
-
+static RaftNode* g_raft_node = nullptr;
 // 信号处理函数
 void signal_handler(int signal) {
+    if (g_raft_node) {
+        g_raft_node->stop();
+    }
     // std::cout << "\nReceived signal " << signal << ", shutting down gracefully..." << std::endl;
     g_running = false;
 }
@@ -38,15 +41,20 @@ int main(int argc, char* argv[]) {
         std::cout << "Example: " << argv[0] << " 0 127.0.0.1 8000 127.0.0.1:8001 127.0.0.1:8002" << std::endl;
         return 1;
     }
-
+    
     int node_id = std::stoi(argv[1]);
+
+    init_logger(node_id);
+    
     std::string ip = argv[2];
     int port = std::stoi(argv[3]);
+    int election_elapsed_time = std::stoi(argv[4])* 1000;
+    spdlog::debug("Election timeout: {}ms", election_elapsed_time);
+        
     
-    init_logger(node_id);
     // 解析集群节点信息
     std::vector<std::pair<std::string, int>> peers;
-    for (int i = 4; i < argc; ++i) {
+    for (int i = 5; i < argc; ++i) {
         std::string peer_addr = argv[i];
         size_t colon_pos = peer_addr.find(':');
         if (colon_pos != std::string::npos) {
@@ -71,12 +79,13 @@ int main(int argc, char* argv[]) {
 
     try {
         // 创建Raft节点实例
-        RaftNode node(node_id, ip, port, peers);
-        
-        spdlog::info("Starting Raft node...");
+        RaftNode node(node_id, ip, port, peers,election_elapsed_time);
+        g_raft_node = &node;
+        spdlog::debug("Raft node {} initialized on {}:{}", node_id, ip, port);
+        // spdlog::info("Starting Raft node...");
         
         // 启动节点
-        node.start();
+        node.start_client();
         
         // spdlog::debug("Raft node started successfully!");
         

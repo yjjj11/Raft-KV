@@ -1,4 +1,25 @@
-[2026-02-27 08:47:45.849] [info] Cluster peers:
-[2026-02-27 08:47:45.849] [info] 127.0.0.1:8000
-[2026-02-27 08:47:45.849] [info] 127.0.0.1:8002
-[2026-02-27 08:47:45.849] [info] Starting Raft node...
+[2026-02-27 16:29:35.895] [debug] Election timeout: 10000ms
+[2026-02-27 16:29:35.895] [info] Cluster peers:
+[2026-02-27 16:29:35.895] [info] 127.0.0.1:8000
+[2026-02-27 16:29:35.895] [info] 127.0.0.1:8002
+[2026-02-27 16:29:35.903] [info] ------------------------------------Raft node 1 started on 127.0.0.1:8001------------------------------------
+[2026-02-27 16:29:35.903] [debug] Raft node 1 initialized on 127.0.0.1:8001
+[2026-02-27 16:29:35.904] [info] ------------------------------client runing ----------------------------
+[2026-02-27 16:29:35.908] [debug] Connected to peer: 127.0.0.1:8000
+[2026-02-27 16:29:35.908] [debug] Connected to peer: 127.0.0.1:8002
+[2026-02-27 16:29:35.908] [info] ------------------------------------Into run_election_timeout------------------------------------
+[2026-02-27 16:29:38.910] [debug] Node 1 received vote request: term=1, candidateId=0, lastLogIndex=-1, lastLogTerm=0
+[2026-02-27 16:29:38.910] [debug] Node 1 discovered higher term 1 in vote request, becoming follower.
+[2026-02-27 16:29:38.910] [debug] Node 1 became follower at term 1
+[2026-02-27 16:29:38.910] [debug] Node 1 granted vote to node 0 for term 1.
+[2026-02-27 16:29:51.321] [info] Node 1 became candidate at term 2
+[2026-02-27 16:29:51.321] [info] ------------------------------------Vote begain--------------------------------------
+[2026-02-27 16:29:51.321] [debug] 调用服务 vote_request 方法 9VoteReply
+[2026-02-27 16:29:51.329] [debug] Node 1 received vote request: term=2, candidateId=2, lastLogIndex=-1, lastLogTerm=0
+[2026-02-27 16:29:51.329] [debug] Node 1 rejecting vote request from node 2: already voted for node 1 in term 2.
+[2026-02-27 16:29:54.730] [error] Failed: Request Timeout 
+When vote_request on 127.0.0.1:8000
+[2026-02-27 16:29:54.730] [debug] 调用服务 vote_request 方法 9VoteReply
+[2026-02-27 16:29:54.730] [debug] Success! Result: reply.term=2, voteGranted=false
+[2026-02-27 16:29:54.730] [info] ------------------------------------Vote count: 0------------------------------------
+[2026-02-27 16:29:54.730] [debug] Node 1 became follower at term 2

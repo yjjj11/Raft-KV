@@ -16,18 +16,19 @@ using namespace mrpc;
 class RaftNode {
 public:
     RaftNode(int node_id, const std::string& ip, int port, 
-             const std::vector<std::pair<std::string, int>>& peers);
+             const std::vector<std::pair<std::string, int>>& peers,
+             int election_elapsed_time);
     ~RaftNode();
 
     // 启动节点
-    void start();
+    void start_client();
     
     // 停止节点
     void stop();
 
     // RPC处理函数
     VoteReply handle_vote_request(const VoteRequest& request);
-    AppendReply handle_append_request(const AppendRequest& request);
+    AppendReply handle_append_request(const AppendRequest& request){}
 
 private:
     // 节点基本信息
@@ -35,7 +36,9 @@ private:
     std::string ip_;
     int port_;
     
+    
     // 集群配置
+    int election_elapsed_time_;
     std::vector<std::pair<std::string, int>> peers_;  // 存储其他节点的地址信息
     std::vector<std::shared_ptr<mrpc::connection>> peer_connections_;  // 连接到其他节点的连接
     
@@ -43,6 +46,7 @@ private:
     std::atomic<State> state_{FOLLOWER};
     std::atomic<int32_t> current_term_{0};
     std::atomic<int32_t> voted_for_{-1};  // -1表示未投票
+     int total_nodes_count_;
     
     // 日志相关
     std::vector<LogEntry> log_;
@@ -68,15 +72,13 @@ private:
 
     // 定时器相关
     std::chrono::steady_clock::time_point last_heartbeat_time_;
-    
+    std::chrono::steady_clock::time_point last_election_time_;
     // 内部辅助函数
-    void run_election_timeout() {}
+    void run_election_timeout();
     void send_heartbeats();
-    void setup_rpc_handlers() {}
-    void connect_to_peers() {
-        
-    }
-    
+    void setup_rpc_handlers() ;
+    void start_server();
+
     // 状态转换
     void become_follower(int32_t new_term);
     void become_candidate();
@@ -93,7 +95,7 @@ private:
     
     // 持久化相关（模拟）
     void save_state();
-    void load_state(){}
+    void load_state();
     
     // 安全检查
     bool is_log_up_to_date(int32_t last_log_term, int32_t last_log_index) const;

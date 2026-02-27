@@ -135,11 +135,11 @@ void Zookeeperutil::start() {
     LOG_INFO("zookeeper_init success! connect to: {}", connstr.c_str());
 }
 
-// 创建节点
+
 void Zookeeperutil::create(std::string path, std::string data, int state) {
     if (m_handle == nullptr) {
         LOG_ERROR("ZK handle is null, call start first!");
-        exit(EXIT_FAILURE);
+        return; // 改为return而非exit，避免程序直接终止
     }
 
     size_t pos = 1;
@@ -148,6 +148,8 @@ void Zookeeperutil::create(std::string path, std::string data, int state) {
         ZkAsyncCtx ctx;
         zoo_aexists(m_handle, parent_path.c_str(), 0, aexists_completion, &ctx);
         sem_wait(&ctx.sem);
+        
+        // 关键修复：只在节点不存在时才创建，节点已存在则跳过
         if (ctx.rc == ZNONODE) {
             zoo_acreate(
                 m_handle,
@@ -162,9 +164,13 @@ void Zookeeperutil::create(std::string path, std::string data, int state) {
             sem_wait(&ctx.sem);
             if (ctx.rc != ZOK) {
                 LOG_ERROR("create parent node failure, rc: {}, path: {}", ctx.rc, parent_path.c_str());
-                exit(EXIT_FAILURE);
+                return; // 改为return而非exit
             }
+        } else if (ctx.rc != ZOK) {
+            LOG_ERROR("check parent node exists failure, rc: {}, path: {}", ctx.rc, parent_path.c_str());
+            return; // 改为return而非exit
         }
+        // 节点已存在（ctx.rc == ZOK）则直接跳过
     }
 
     ZkAsyncCtx ctx;
@@ -188,8 +194,12 @@ void Zookeeperutil::create(std::string path, std::string data, int state) {
             LOG_INFO("ZK function node create success, path: [{}]", path.c_str());
         } else {
             LOG_ERROR("znode create failure, rc: [{}], path: [{}]", ctx.rc, path.c_str());
-            exit(EXIT_FAILURE);
+            return; // 改为return而非exit
         }
+    } else if (ctx.rc == ZOK) {
+        LOG_INFO("ZK node already exists, skip create: [{}]", path.c_str());
+    } else {
+        LOG_ERROR("check znode exists failure, rc: [{}], path: [{}]", ctx.rc, path.c_str());
     }
 }
 
