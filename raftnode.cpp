@@ -12,7 +12,7 @@ RaftNode::RaftNode(int node_id, const std::string& ip, int port,
     // 初始化next_index和match_index数组
     next_index_.resize(peers_.size());
     match_index_.resize(peers_.size());
-    total_nodes_count_ = peers_.size()+1;
+    total_nodes_count_ = 1;
     spdlog::warn("--------------------------------total_nodes_count_: {}", total_nodes_count_);
     election_elapsed_time_ = election_elapsed_time;
         
@@ -167,6 +167,7 @@ void RaftNode::start_client() {
         auto conn = client_.connect(peer.first, peer.second,5);
         if (conn) {
             peer_connections_.push_back(conn);
+            total_nodes_count_++;
             spdlog::debug("Connected to peer: {}:{}", peer.first, peer.second);
         } else {
             spdlog::error("Failed to connect to peer: {}:{}", peer.first, peer.second);
