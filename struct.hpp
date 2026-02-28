@@ -7,7 +7,6 @@ using json = nlohmann::json;
 
 // 先引入自定义的Raft消息结构体（和之前定义的保持一致）
 struct LogEntry {
-    int32_t index = -1;         // 日志条目的索引，默认初始化-1
     int32_t term = 0;          // 任期号，默认初始化0
     std::string key;           // 键
     std::string value;         // 值

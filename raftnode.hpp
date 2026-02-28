@@ -79,7 +79,10 @@ private:
     void send_heartbeats();
     void setup_rpc_handlers() ;
     void start_server();
-
+    
+    // 日志一致性检查
+    bool check_if_log_is_ok(const AppendRequest& request);
+    
     // 状态转换
     void become_follower(int32_t new_term);
     void become_follower_withlock(int32_t new_term);
@@ -101,4 +104,6 @@ private:
     
     // 安全检查
     bool is_log_up_to_date(int32_t last_log_term, int32_t last_log_index) const;
+    
+    void apply_logs_to_state_machine(int32_t from_index, int32_t to_index);
 };

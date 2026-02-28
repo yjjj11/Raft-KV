@@ -13,3 +13,4 @@ Asio_mrpc/       # 推荐：匹配普通目录 Asio_mrpc（无前置点）
 compile_commands.json  # 编译数据库（若不需要提交）
 .DS_Store        # macOS 隐藏文件
 *.log            # 日志文件
+core-*           # 核心转储文件

@@ -13,6 +13,7 @@ RaftNode::RaftNode(int node_id, const std::string& ip, int port,
     next_index_.resize(peers_.size());
     match_index_.resize(peers_.size());
     total_nodes_count_ = peers_.size()+1;
+    spdlog::warn("--------------------------------total_nodes_count_: {}", total_nodes_count_);
     election_elapsed_time_ = election_elapsed_time;
         
     // 加载持久化状态
@@ -71,15 +72,11 @@ void RaftNode::become_follower_withlock(int32_t new_term) {
     std::lock_guard<std::mutex> lock(mutex_); // 保护共享状态的修改
     become_follower(new_term);
 }
+
 void RaftNode::become_follower(int32_t new_term) {
     last_heartbeat_time_ = std::chrono::steady_clock::now();//假装立马收到了leader心跳
 
     // 更新任期为发现的更高任期
-    if (new_term > current_term_) {
-        current_term_.store(new_term);
-    }
-    // 如果传入的 new_term 与 current_term 相等，也可能需要转换（例如，收到了合法的 AppendEntries）
-    // 但最常见的情况是 new_term > current_term_
     if (new_term >= current_term_) {
         current_term_.store(new_term);
     }
@@ -238,7 +235,7 @@ int32_t RaftNode::get_last_log_index() const {
     if (log_.empty()) {
         return -1; // Raft 论文中初始值常为 -1，PrevLogIndex 为 -1 表示没有前置日志
     }
-    return log_.back().index;
+    return log_.size() - 1;
 }
 
 int32_t RaftNode::get_last_log_term() const {
@@ -300,11 +297,22 @@ VoteReply RaftNode::handle_vote_request(const VoteRequest& request) {
     return reply;
 }
 
+bool RaftNode::is_log_up_to_date(int32_t last_log_term, int32_t last_log_index) const {
+    int32_t my_last_log_term = get_last_log_term();
+    int32_t my_last_log_index = get_last_log_index();
+
+    if (last_log_term != my_last_log_term) {
+        return last_log_term > my_last_log_term;
+    }
+    return last_log_index >= my_last_log_index;
+}
+
 AppendReply RaftNode::handle_append_request(const AppendRequest& request) {
     AppendReply reply;
     reply.term = current_term_.load(); // 默认回复当前任期
     reply.success = false; // 默认失败
 
+    //检查消息任期部分----------------------------------------
     // 1. 检查任期
     if (request.term < reply.term) {
         // 请求任期过旧，拒绝
@@ -317,55 +325,92 @@ AppendReply RaftNode::handle_append_request(const AppendRequest& request) {
     if (request.term > reply.term) {
         spdlog::debug("Node {} discovered higher term {} in heartbeat, becoming follower.", node_id_, request.term);
         become_follower_withlock(request.term);
+        reply.term = current_term_.load();
     }
 
     // 3. 重置选举超时计时器（因为收到了 Leader 的有效消息）
     std::lock_guard<std::mutex> lock(mutex_); // 获取锁保护所有状态
     last_heartbeat_time_ = std::chrono::steady_clock::now();
 
-    handle_heartbeat_request(request,reply);
+    //检查消息一致性部分----------------------------------------
+    reply.success = check_if_log_is_ok(request);
+    if(!reply.success) return reply; // 日志不一致，拒绝
+
+
+
+    // handle_heartbeat_request(request,reply);
+    // 5. 如果日志一致，开始追加日志条目，能走到这里说明previndex  && prevterm  已经匹配了
+    // 5a. 如果本地日志在 prevLogIndex+1 位置存在日志，且与传入的日志冲突，则删除冲突的日志及后续所有日志
+    // 例如：本地 [1,2,3,4], Leader [1,2,5,6] (prevLogIndex=1, prevLogTerm=2)
+    // 当前在 index=2 的本地日志是 3 (term=?)，Leader 传来的 entries[0] 是 5 (term=?)    ，index和term唯一确定一条日志，我们比较term时index是确定的，因此比较term即可
+    // 如果 3.term != 5.term，则删除 3 和 4。
+    int32_t local_next_index = request.prevLogIndex + 1;
+    for (const auto& entry : request.entries) {
+        if (local_next_index < static_cast<int32_t>(log_.size())) {
+            // 检查本地日志是否与 Leader 的日志冲突
+            if (log_[local_next_index].term != entry.term) {
+                // 冲突，删除本地从 local_next_index 开始的所有日志，然后
+                log_.erase(log_.begin() + local_next_index, log_.end());
+                log_.push_back(entry); // 追加 Leader 的日志
+            }
+            local_next_index++;
+        } else {
+            // 本地日志较短，追加 Leader 的日志
+            log_.push_back(entry);
+            local_next_index++;
+        }
+    }
     
-    return reply; // reply.success = true
+    if (request.leaderCommit > commit_index_) {
+        int32_t last_new_log_index = request.prevLogIndex + request.entries.size();
+        commit_index_.store(std::min(request.leaderCommit, last_new_log_index));
+        // 7. 尝试应用新提交的日志到状态机
+        apply_logs_to_state_machine(last_applied_.load() + 1, commit_index_.load());
+    }
+    
+    reply.success = true;
+    reply.term = current_term_.load();
+    spdlog::debug("Node {}: AppendEntries successful, added {} entries.  from node {}", node_id_, request.entries.size(), request.leaderId);
+    return reply;
 }
 
-void RaftNode::handle_heartbeat_request(const AppendRequest& request,AppendReply& reply){
-    // 4. 检查日志一致性 (PrevLogIndex and PrevLogTerm)
+bool RaftNode::check_if_log_is_ok(const AppendRequest& request){
     bool log_ok = true;
     if (request.prevLogIndex >= 0) { // 如果前置日志索引有效
         if (request.prevLogIndex >= static_cast<int32_t>(log_.size())) {
             // 前置日志索引超出本地日志范围,本地没有leader的这个位置的日志
+             spdlog::debug("Node {}: AppendEntries failed, prevLogIndex {} out of range.", node_id_, request.prevLogIndex);
             log_ok = false;
         } else {
             // 检查任期是否匹配
             if (log_[request.prevLogIndex].term != request.prevLogTerm) {
+                spdlog::debug("Node {}: AppendEntries failed, prevLogTerm mismatch at index {}.", node_id_, request.prevLogIndex);
                 log_ok = false;
             }
         }
     }
     if (!log_ok) spdlog::debug("Node {}: Heartbeat consistency check failed.", node_id_);
-
-    // 5. 如果是一次有效的心跳（任期合法，日志一致），则成功
-    // 因为 entries 为空，所以没有日志需要追加
-    reply.success = true;
-    reply.term = current_term_.load(); // 确保回复携带最新的任期
-
-    if (request.leaderCommit > commit_index_) {
-        int32_t last_local_log_index = get_last_log_index(); // 使用辅助函数更清晰
-        commit_index_.store(std::min(request.leaderCommit, last_local_log_index));
-        // 可能需要应用已提交的日志到状态机
-    }
-
-    spdlog::info("Node {}: Received and accepted heartbeat from leader {}.", node_id_, request.leaderId);
+    return log_ok;
 }
 
-bool RaftNode::is_log_up_to_date(int32_t last_log_term, int32_t last_log_index) const {
-    int32_t my_last_log_term = get_last_log_term();
-    int32_t my_last_log_index = get_last_log_index();
+void RaftNode::apply_logs_to_state_machine(int32_t from_index, int32_t to_index) {
+    // 这个函数模拟将已提交的日志应用到状态机
+    for (int32_t i = from_index; i <= to_index; ++i) {
+        if (i < 0 || i >= static_cast<int32_t>(log_.size())) continue; // 安全检查
+        const auto& entry = log_[i];
+        
+        //执行实际的业务逻辑
+        // 例如，如果日志条目包含一个命令，这里会解析并执行它
+        spdlog::info("Node {}: Applying log entry at index {} (term {}): Command=\"Set {}={}\"", 
+                     node_id_, i , entry.term, entry.key, entry.value); // 假设 LogEntry 有 command 字段
 
-    if (last_log_term != my_last_log_term) {
-        return last_log_term > my_last_log_term;
+
+
+
+
+
+        last_applied_.store(i); // 更新已应用的索引
     }
-    return last_log_index >= my_last_log_index;
 }
 
 
@@ -380,34 +425,42 @@ void RaftNode::send_heartbeats() {
         AppendRequest heartbeat_req;
         {
             std::lock_guard<std::mutex> lock(mutex_); // 保护共享状态的读取
-            // 1. 设置基本字段
             heartbeat_req.term = current_term_;
             heartbeat_req.leaderId = node_id_;
             heartbeat_req.leaderCommit = commit_index_.load(); // 发送 Leader 的提交索引
         }
-        heartbeat_req.prevLogIndex = -1; // 这需要根据 next_index_[i] 动态设置
-        heartbeat_req.prevLogTerm = 0; // 这也需要根据 prevLogIndex 动态设置
-        // 3. 心跳的关键：entries 为空
-        heartbeat_req.entries = {}; // 空列表
+
+
         // spdlog::debug("Node {} sending heartbeat to all followers.", node_id_);
         for (size_t i = 0; i < peer_connections_.size(); ++i) {
+            if (!running_ || state_.load() != LEADER) break; // 检查状态
+
             if(!peer_connections_[i]){
                 std::unique_lock<std::mutex> lock(conns_mutex_);
                 peer_connections_[i] = client_.connect(peers_[i].first, peers_[i].second,0.5);//尝试重新连接
                 if(peer_connections_[i]) total_nodes_count_++;
                 else continue;
             }
-            if (state_.load() != LEADER)   break; 
-            // 为每个 Follower 动态设置 PrevLogIndex 和 PrevLogTerm
+
             {
                 std::unique_lock<std::mutex> lock(mutex_);
                 heartbeat_req.prevLogIndex = next_index_[i] - 1;
-                if (heartbeat_req.prevLogIndex >= 0) {
+                heartbeat_req.prevLogTerm = 0; // 默认值
+                if (heartbeat_req.prevLogIndex >= 0 && heartbeat_req.prevLogIndex < static_cast<int32_t>(log_.size())) {
                     heartbeat_req.prevLogTerm = log_[heartbeat_req.prevLogIndex].term;
-                }else{
-                    heartbeat_req.prevLogTerm = 0;
+                }
+
+                heartbeat_req.entries.clear();
+                if (next_index_[i] < static_cast<int32_t>(log_.size())) {
+                    for (size_t j = next_index_[i]; j < log_.size(); ++j) {
+                        heartbeat_req.entries.push_back(log_[j]);
+                    }
+                } else {
+                    // 如果 next_index_[i] 超过了日志长度，说明 Follower 已经同步了所有日志，发送心跳
+                    heartbeat_req.entries = {}; // 空 entries
                 }
             }
+
             // 发送心跳请求到每个 Follower
             AppendReply reply;
             if(send_append_entries(heartbeat_req, i, reply)){
@@ -417,13 +470,62 @@ void RaftNode::send_heartbeats() {
                     is_follower = true;
                     break;
                 }
-                if(reply.success) spdlog::trace("Heartbeat to peer {} successful.", i);
-                else next_index_[i] = std::max(1, next_index_[i] - 1);
+                std::unique_lock<std::mutex> lock(mutex_);
+                // spdlog::debug("开始根据心跳回复结果更新match_index_和next_index_");
+                if (reply.success) {
+                    int32_t num_entries_sent = static_cast<int32_t>(heartbeat_req.entries.size());
+                    // Follower 匹配的日志索引是其 prevLogIndex + 成功发送的数量
+                    int32_t new_match_index = heartbeat_req.prevLogIndex + num_entries_sent;
+                    // spdlog::debug("根据心跳回复结果更新match_index_和next_index_为{}", new_match_index);
+                    match_index_[i] = std::max(match_index_[i], new_match_index);
+                    next_index_[i] = std::max(next_index_[i], new_match_index + 1);
+
+                    // spdlog::trace("Node {}: Updated match_index[{}] to {}, next_index[{}] to {}.", node_id_, i, match_index_[i], i, next_index_[i]);
+                } else {
+                    // 4. 失败处理：递减 next_index，尝试重发s
+                    if (next_index_[i] > 0) next_index_[i]--;
+
+                    spdlog::warn("Node {}: AppendEntries to {} failed, decrementing next_index to {}.",node_id_, i, next_index_[i]);
+                }
             } 
             
         }
         // spdlog::debug("Heartbeats send Over!");
-        if(is_follower)break; //如果从心跳中发现自己已经不是领导者了，就跳出循环
+        if(is_follower){
+            spdlog::warn("----------------------心跳中途发现自己变成了follwer-----------------------");
+            break; //如果从心跳中发现自己已经不是领导者了，就跳出循环
+        }
+        if (running_ && state_.load() == LEADER) {
+            {
+                std::unique_lock<std::mutex> lock(mutex_);
+                // spdlog::debug("开始根据match_index_更新commit_index_");
+                int32_t new_commit_index = commit_index_.load();
+                // 遍历所有 match_index，寻找一个 N，使得 N > commit_index，并且 match_index[i] >= N 的节点数量超过半数
+                for (int32_t n = log_.size() - 1; n > commit_index_.load(); --n) {
+                    if (n < 0) continue; // 安全检查
+                    // 检查当前日志索引 n 的任期是否与当前任期相同
+                    if (log_[n].term == current_term_) {
+                        int count = 1; // Leader 自己算一个
+                        for (size_t i = 0; i < match_index_.size(); ++i) {
+                            if (match_index_[i] >= n) {
+                                count++;
+                            }
+                        }
+                        if (count > total_nodes_count_ / 2) {
+                            new_commit_index = n;
+                            break; // 找到最大的 N
+                        }
+                    }
+                }
+                if (new_commit_index != commit_index_.load()) {
+                    // spdlog::debug("根据match_index_更新commit_index_为{}", new_commit_index);
+                    commit_index_.store(new_commit_index);
+                    spdlog::info("Node {}: Updated commit_index to {}.", node_id_, commit_index_.load());
+                    // 应用新提交的日志
+                    apply_logs_to_state_machine(last_applied_.load() + 1, commit_index_.load());
+                }
+            }
+        }
         std::this_thread::sleep_for(heartbeat_interval);
 
     } // while loop end
@@ -467,10 +569,10 @@ void RaftNode::run_election_timeout() {
                      vote_req.lastLogTerm = get_last_log_term();
                 }
                 spdlog::info("------------------------------------Vote begain--------------------------------------");
-                size_t vote_count = 0;
+                size_t vote_count = 1;
                 // 发送投票请求
                 for (size_t i=0;i<peer_connections_.size();i++) {
-                    if(state_.load() == FOLLOWER){//预防在选举的过程中诞生了新的leader,处理心跳后在主线程已经降级为了follower,此时应该停止选举
+                    if(state_.load() != CANDIDATE){//预防在选举的过程中诞生了新的leader,处理心跳后在主线程已经降级为了follower,此时应该停止选举
                         spdlog::info("-----------------------------------Leader 诞生，停止选举------------------------------------");
                         break;
                     }
@@ -505,8 +607,7 @@ void RaftNode::run_election_timeout() {
                     continue;
                 }
                 
-                vote_count++;
-                spdlog::info("------------------------------------Vote count: {}------------------------------------", vote_count);
+                spdlog::info("----------------------total_nodes_count_: {}, vote_count: {}-------------------", total_nodes_count_, vote_count);
                 // 如果没有选举时长没有超时并且检查获得多数投票
                 if (vote_count > (total_nodes_count_ / 2)) become_leader();
                 else become_follower_withlock(current_term_);
@@ -516,3 +617,9 @@ void RaftNode::run_election_timeout() {
     }
 }
 // 在 raftnode.cpp 中实现 handle_append_request (仅心跳版本)
+
+
+void RaftNode::append_log(const LogEntry& entry) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    log_.push_back(entry);
+}
