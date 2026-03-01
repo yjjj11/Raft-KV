@@ -473,6 +473,8 @@ void RaftNode::send_heartbeats() {
             if(!peer_connections_[i]){
                 std::unique_lock<std::mutex> lock(conns_mutex_);
                 peer_connections_[i] = client_.connect(peers_[i].first, peers_[i].second,1);//尝试重新连接
+                next_index_[peer_connections_.size()] = 0;
+                match_index_[peer_connections_.size()] = -1;
                 if(peer_connections_[i]) total_nodes_count_++;
                 else continue;
             }
@@ -620,6 +622,8 @@ void RaftNode::run_election_timeout() {
                     }
                     if (!peer_connections_[i]) {
                         std::unique_lock<std::mutex> lock(conns_mutex_);
+                        next_index_[peer_connections_.size()] = 0;
+                        match_index_[peer_connections_.size()] = -1;
                         peer_connections_[i] = client_.connect(peers_[i].first, peers_[i].second,1);//尝试重新连接
                         if(peer_connections_[i]) total_nodes_count_++;
                         else continue;   //还是连接不上就跳过

@@ -54,7 +54,10 @@ int main(int argc, char* argv[]) {
         std::cout << "  2. GET   - 查询指定键的值           " << std::endl;
         std::cout << "  3. DELETE - 删除指定键值对           " << std::endl;
         std::cout << "  0. EXIT  - 退出操作界面             " << std::endl;
-        std::cout << "=====================================\n" << std::endl;
+        std::cout << "=====================================\n\n" << std::endl;
+
+
+        std::cout << "请输入操作编号(0-3):";
         int op;
         if (!(std::cin >> op)) {
             std::cin.clear(); // 清除输入错误状态
@@ -69,6 +72,7 @@ int main(int argc, char* argv[]) {
                 break;
             }
             case 1: { // PUT操作
+                std::cout << "----------------------------新增/修改键值对---------------------------" << std::endl;
                 std::string key, value;
                 std::cout << "请输入键：";
                 std::cin >> key;
@@ -85,6 +89,7 @@ int main(int argc, char* argv[]) {
                 break;
             }
             case 2: { // GET操作
+                std::cout << "----------------------------查询键值对---------------------------" << std::endl;
                 std::string key;
                 std::cout << "请输入要查询的键：";
                 std::cin >> key;
