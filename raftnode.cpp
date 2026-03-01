@@ -15,8 +15,7 @@ RaftNode::RaftNode(int node_id, const std::string& ip, int port,
     total_nodes_count_ = 1;
     spdlog::warn("--------------------------------total_nodes_count_: {}", total_nodes_count_);
     election_elapsed_time_ = election_elapsed_time;
-        
-    // 加载持久化状态
+    // 加载持久化状态s
     load_state();
     
     // 设置RPC处理器
@@ -63,7 +62,7 @@ void RaftNode::become_candidate() {
     state_ = CANDIDATE;
     voted_for_ = node_id_;
         // 5. 记录日志
-    spdlog::error("Node {} became candidate at term {}", node_id_, current_term_);
+    spdlog::error("Node {} became CANDIDATE at term {}", node_id_, current_term_);
     last_election_time_ = std::chrono::steady_clock::now();
     save_state();
 }
@@ -87,7 +86,7 @@ void RaftNode::become_follower(int32_t new_term) {
     // 重置投票信息
     voted_for_.store(-1);
     // 记录日志
-    spdlog::error("Node {} became follower at term {}", node_id_, current_term_.load());
+    spdlog::error("Node {} became FOLLOWER at term {}", node_id_, current_term_.load());
 
     // 持久化状态 (任期和投票信息)
     save_state();
@@ -101,7 +100,7 @@ void RaftNode::become_leader() {
             return;
         }
 
-        spdlog::error("Node {} became leader at term {}.", node_id_, current_term_.load());
+        spdlog::error("Node {} became LEADER at term {}.", node_id_, current_term_.load());
 
         // 1. 转换状态
         state_.store(LEADER);
@@ -139,8 +138,20 @@ void RaftNode::setup_rpc_handlers() {
                      [this](const AppendRequest& req) -> AppendReply { 
                          return this->handle_append_request(req); 
                      });
+                    
+    server_.reg_func("is_leader", 
+                     [this](int node_id) -> bool { 
+                         return this->is_leader(node_id); 
+                     });
+    server_.reg_func("submit", 
+                     [this](const LogEntry& entry) -> bool { 
+                         return this->submit(entry); 
+                     });
 }
 
+bool RaftNode::is_leader(int node_id) {
+    return state_.load() == LEADER;
+}
 void RaftNode::start_server() {
     if (running_) return;
     
@@ -234,7 +245,7 @@ int32_t RaftNode::get_last_log_index() const {
     // 日志索引通常从 0 开始
     // 如果日志为空，则最后索引为 -1 (或根据规范定义的初始值)
     if (log_.empty()) {
-        return -1; // Raft 论文中初始值常为 -1，PrevLogIndex 为 -1 表示没有前置日志
+        return -1; 
     }
     return log_.size() - 1;
 }
@@ -242,7 +253,7 @@ int32_t RaftNode::get_last_log_index() const {
 int32_t RaftNode::get_last_log_term() const {
     // 如果日志为空，则最后任期为 0
     if (log_.empty()) {
-        return 0; 
+        return -0; 
     }
     // 返回最后一个日志条目的任期
     return log_.back().term;
@@ -346,6 +357,7 @@ AppendReply RaftNode::handle_append_request(const AppendRequest& request) {
     // 当前在 index=2 的本地日志是 3 (term=?)，Leader 传来的 entries[0] 是 5 (term=?)    ，index和term唯一确定一条日志，我们比较term时index是确定的，因此比较term即可
     // 如果 3.term != 5.term，则删除 3 和 4。
     int32_t local_next_index = request.prevLogIndex + 1;
+    size_t added_count = 0;
     for (const auto& entry : request.entries) {
         if (local_next_index < static_cast<int32_t>(log_.size())) {
             // 检查本地日志是否与 Leader 的日志冲突
@@ -353,12 +365,14 @@ AppendReply RaftNode::handle_append_request(const AppendRequest& request) {
                 // 冲突，删除本地从 local_next_index 开始的所有日志，然后
                 log_.erase(log_.begin() + local_next_index, log_.end());
                 log_.push_back(entry); // 追加 Leader 的日志
+                added_count++;
             }
             local_next_index++;
         } else {
             // 本地日志较短，追加 Leader 的日志
             log_.push_back(entry);
             local_next_index++;
+            added_count++;
         }
     }
     
@@ -371,7 +385,8 @@ AppendReply RaftNode::handle_append_request(const AppendRequest& request) {
     
     reply.success = true;
     reply.term = current_term_.load();
-    spdlog::debug("Node {}: AppendEntries successful, added {} entries.  from node {}", node_id_, request.entries.size(), request.leaderId);
+    if(added_count > 0)spdlog::debug("Node {}: AppendEntries successful, added {} entries.  from node {}", node_id_, added_count, request.leaderId);
+    last_heartbeat_time_ = std::chrono::steady_clock::now();
     return reply;
 }
 
@@ -395,8 +410,7 @@ bool RaftNode::check_if_log_is_ok(const AppendRequest& request){
 }
 
 void RaftNode::apply_logs_to_state_machine(int32_t from_index, int32_t to_index) {
-    std::lock_guard<std::mutex> lock(mutex_); // 保护状态机执行的线程安全
-    
+    spdlog::debug("Node {}: Applying logs from index {} to {} to state machine.", node_id_, from_index, to_index);
     // 遍历所有待应用的日志条目
     for (int32_t i = from_index; i <= to_index; ++i) {
         if (i < 0 || i >= static_cast<int32_t>(log_.size())) {
@@ -405,6 +419,8 @@ void RaftNode::apply_logs_to_state_machine(int32_t from_index, int32_t to_index)
         }
         const auto& entry = log_[i];
         
+
+        spdlog::debug("Node {}: 正在准备将index={}的日志条目 {} = {} 应用到状态机。", node_id_, i, entry.key, entry.value);
         // 核心：调用业务回调函数执行业务逻辑
         bool callback_ok = true;
         if (apply_callback_) {
@@ -456,7 +472,7 @@ void RaftNode::send_heartbeats() {
 
             if(!peer_connections_[i]){
                 std::unique_lock<std::mutex> lock(conns_mutex_);
-                peer_connections_[i] = client_.connect(peers_[i].first, peers_[i].second,0.5);//尝试重新连接
+                peer_connections_[i] = client_.connect(peers_[i].first, peers_[i].second,1);//尝试重新连接
                 if(peer_connections_[i]) total_nodes_count_++;
                 else continue;
             }
@@ -479,11 +495,13 @@ void RaftNode::send_heartbeats() {
                     heartbeat_req.entries = {}; // 空 entries
                 }
             }
-
+            if(!heartbeat_req.entries.empty()){
+                spdlog::debug("将发送新日志消息到follwer set {} = {} term {}", heartbeat_req.entries[0].key, heartbeat_req.entries[0].value, heartbeat_req.entries[0].term);
+            }
             // 发送心跳请求到每个 Follower
             AppendReply reply;
             if(send_append_entries(heartbeat_req, i, reply)){
-                spdlog::debug("Heartbeat to node {} Reply term: {} Success: {}", i+1, reply.term, reply.success);
+                // spdlog::debug("Heartbeat to node {} Reply term: {} Success: {}", i+1, reply.term, reply.success);
                 if(reply.term > current_term_.load()){
                     become_follower_withlock(reply.term);
                     is_follower = true;
@@ -498,8 +516,7 @@ void RaftNode::send_heartbeats() {
                     // spdlog::debug("根据心跳回复结果更新match_index_和next_index_为{}", new_match_index);
                     match_index_[i] = std::max(match_index_[i], new_match_index);
                     next_index_[i] = std::max(next_index_[i], new_match_index + 1);
-
-                    // spdlog::trace("Node {}: Updated match_index[{}] to {}, next_index[{}] to {}.", node_id_, i, match_index_[i], i, next_index_[i]);
+                    // spdlog::info("Node {}: Updated match_index[{}] to {}, next_index[{}] to {}.", node_id_, i, match_index_[i], i, next_index_[i]);
                 } else {
                     // 4. 失败处理：递减 next_index，尝试重发s
                     if (next_index_[i] > 0) next_index_[i]--;
@@ -523,23 +540,29 @@ void RaftNode::send_heartbeats() {
                 for (int32_t n = log_.size() - 1; n > commit_index_.load(); --n) {
                     if (n < 0) continue; // 安全检查
                     // 检查当前日志索引 n 的任期是否与当前任期相同
+                    spdlog::info("Node {}: Checking log index {} with term {}.", node_id_, n, log_[n].term);
                     if (log_[n].term == current_term_) {
                         int count = 1; // Leader 自己算一个
+                        spdlog::info("Node {}: Counting votes for log index {}.", node_id_, n);
                         for (size_t i = 0; i < match_index_.size(); ++i) {
                             if (match_index_[i] >= n) {
                                 count++;
+                                spdlog::info("Node {}: Vote granted for log index {} by node {}.", node_id_, n, i);
                             }
                         }
+                        spdlog::info("Node {}: Total votes for log index {} is {}.", node_id_, n, count);
                         if (count > total_nodes_count_ / 2) {
+                            spdlog::info("Node {}: Log index {} is committed with {} votes.", node_id_, n, count);
                             new_commit_index = n;
                             break; // 找到最大的 N
                         }
                     }
                 }
+                // spdlog::info("Node {}: New commit_index candidate is {}.", node_id_, new_commit_index);
                 if (new_commit_index != commit_index_.load()) {
                     // spdlog::debug("根据match_index_更新commit_index_为{}", new_commit_index);
                     commit_index_.store(new_commit_index);
-                    spdlog::info("Node {}: Updated commit_index to {}.", node_id_, commit_index_.load());
+                    spdlog::debug("Node {}: Updated commit_index to {}.", node_id_, commit_index_.load());
                     // 应用新提交的日志
                     apply_logs_to_state_machine(last_applied_.load() + 1, commit_index_.load());
                 }
@@ -558,7 +581,7 @@ void RaftNode::run_election_timeout() {
     spdlog::info("------------------------------------Into run_election_timeout------------------------------------");
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::uniform_int_distribution<> dis(3000, 10000); // 1000-3000ms 随机选举超时
+    std::uniform_int_distribution<> dis(4000, 10000); // 1000-3000ms 随机选举超时
 
     while (running_) {
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
@@ -597,7 +620,7 @@ void RaftNode::run_election_timeout() {
                     }
                     if (!peer_connections_[i]) {
                         std::unique_lock<std::mutex> lock(conns_mutex_);
-                        peer_connections_[i] = client_.connect(peers_[i].first, peers_[i].second,0.5);//尝试重新连接
+                        peer_connections_[i] = client_.connect(peers_[i].first, peers_[i].second,1);//尝试重新连接
                         if(peer_connections_[i]) total_nodes_count_++;
                         else continue;   //还是连接不上就跳过
                     }
@@ -637,24 +660,43 @@ void RaftNode::run_election_timeout() {
 }
 // 在 raftnode.cpp 中实现 handle_append_request (仅心跳版本)
 
+int RaftNode::find_leader(){
+    for(int i=0;i<peer_connections_.size();i++){
+        auto conn=peer_connections_[i];
+        if(conn) {
+            auto reply = conn->call<bool>("is_leader", i);
+            if(reply.error_code() == mrpc::ok && reply.value()){
+                return i;
+            }
+        }
+    }
+    return -1;
+}
 
 bool RaftNode::submit(const LogEntry& entry) {
     // 1. 检查当前节点是否为 Leader
     if (state_.load() != LEADER) {
         spdlog::warn("Node {}: Not leader, cannot submit log entry.", node_id_);
-        return false;
+        int leader_id = find_leader();
+        auto conn=peer_connections_[leader_id];
+        auto reply = conn->call<bool>("submit", entry);
+        if (reply.error_code() == mrpc::ok) {
+            spdlog::info("成功向leader {}提交日志条目 {} = {}", leader_id, entry.key, entry.value);
+        } else {
+            spdlog::error("Node {}: Failed to submit log entry to leader {}: {}", node_id_, leader_id, reply.error_msg());
+        }
     }
 
     // 2. 加锁写入日志（保证日志的原子性）
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        log_.push_back(entry);
+        // entry.term = current_term_.load();
+        auto new_entry = entry;
+        new_entry.term = current_term_.load();
+        log_.push_back(new_entry);
         spdlog::info("Node {}: Submitted log entry (index {}, term {})", 
                      node_id_, log_.size()-1, current_term_.load());
     }
-
-    // 3. 触发心跳/日志同步（可选：立即同步，而非等待下一次心跳）
-    // 注：如果你的心跳线程是定时同步，这里可以主动唤醒或直接调用同步逻辑
     return true;
 }
 
@@ -662,12 +704,11 @@ void init_logger(int node_id) {
     std::filesystem::create_directories("logs");
     auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(
         "logs/raft_node_" + std::to_string(node_id) + ".log", true);
-    auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
 
     // 创建 logger
     auto logger = std::make_shared<spdlog::logger>(
         "raft_node_" + std::to_string(node_id),
-            spdlog::sinks_init_list{file_sink, console_sink}
+            spdlog::sinks_init_list{file_sink}
     );
     // 关键：给 logger 单独设置格式（时间高亮 + 去掉 logger 名）
     logger->set_pattern("%^[%Y-%m-%d %H:%M:%S.%e]%$ [%l] %v");

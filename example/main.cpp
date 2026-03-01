@@ -16,7 +16,8 @@ void signal_handler(int signal) {
 class KvStore {
 public:
     bool put(const std::string& key, const std::string& value) {
-        std::cout << "Apply: " << key << " = " << value << std::endl;
+        // std::cout << "Apply: " << key << " = " << value << std::endl;
+        spdlog::warn("----------------------------Apply: {} = {}---------------------------", key, value);
         kv_store_[key] = value;
         return true;
     }
@@ -117,11 +118,8 @@ int main(int argc, char* argv[]) {
                 break;
             }
         }
-    
-    spdlog::debug("Raft node shutdown complete.");
-
     }
     node->stop();
     return 0;
-   
+   spdlog::debug("Raft node shutdown complete.");
 }

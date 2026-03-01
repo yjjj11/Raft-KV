@@ -59,8 +59,8 @@ private:
     
     // 日志相关
     std::vector<LogEntry> log_;
-    std::atomic<int32_t> commit_index_{0};
-    std::atomic<int32_t> last_applied_{0};
+    std::atomic<int32_t> commit_index_{-1};
+    std::atomic<int32_t> last_applied_{-1};
     
     // 领导者特有状态
     std::vector<int32_t> next_index_;   // 发送给每个节点的下一个日志索引
@@ -96,7 +96,8 @@ private:
     void become_follower_withlock(int32_t new_term);
     void become_candidate();
     void become_leader();
-    
+    bool is_leader(int node_id);
+        
     // RPC调用辅助函数
     bool send_vote_request(const VoteRequest& request, size_t peer_idx, VoteReply& reply);
     bool send_append_entries(const AppendRequest& request, size_t peer_idx, AppendReply& reply);
