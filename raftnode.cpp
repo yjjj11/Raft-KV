@@ -324,7 +324,7 @@ AppendReply RaftNode::handle_append_request(const AppendRequest& request) {
 
     // 2. 如果任期更高，更新本地任期并成为 Follower
     if (request.term > reply.term) {
-        spdlog::debug("Node {} discovered higher term {} in heartbeat, becoming follower.", node_id_, request.term);
+        spdlog::debug("Node {} discovered higher term {} in heartbeat from node {}, becoming follower.", node_id_, request.term, request.leaderId);
         become_follower_withlock(request.term);
         reply.term = current_term_.load();
     }
@@ -332,6 +332,9 @@ AppendReply RaftNode::handle_append_request(const AppendRequest& request) {
     // 3. 重置选举超时计时器（因为收到了 Leader 的有效消息）
     std::lock_guard<std::mutex> lock(mutex_); // 获取锁保护所有状态
     last_heartbeat_time_ = std::chrono::steady_clock::now();
+    leader_id_ = request.leaderId; // 更新 Leader ID
+
+
 
     //检查消息一致性部分----------------------------------------
     reply.success = check_if_log_is_ok(request);
@@ -656,4 +659,69 @@ bool RaftNode::submit(const LogEntry& entry) {
     // 3. 触发心跳/日志同步（可选：立即同步，而非等待下一次心跳）
     // 注：如果你的心跳线程是定时同步，这里可以主动唤醒或直接调用同步逻辑
     return true;
+}
+
+void init_logger(int node_id) {
+    std::filesystem::create_directories("logs");
+    auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(
+        "logs/raft_node_" + std::to_string(node_id) + ".log", true);
+    auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+
+    // 创建 logger
+    auto logger = std::make_shared<spdlog::logger>(
+        "raft_node_" + std::to_string(node_id),
+            spdlog::sinks_init_list{file_sink, console_sink}
+    );
+    // 关键：给 logger 单独设置格式（时间高亮 + 去掉 logger 名）
+    logger->set_pattern("%^[%Y-%m-%d %H:%M:%S.%e]%$ [%l] %v");
+    logger->set_level(spdlog::level::debug);
+    logger->flush_on(spdlog::level::debug);
+
+    spdlog::set_default_logger(logger);
+}
+
+std::shared_ptr<RaftNode> initialize_server(int argc, char* argv[]){
+    if (argc < 4) {
+        std::cout << "Usage: " << argv[0] << " <node_id> <ip> <port> [peer1_ip:port peer2_ip:port ...]" << std::endl;
+        std::cout << "Example: " << argv[0] << " 0 127.0.0.1 8000 127.0.0.1:8001 127.0.0.1:8002" << std::endl;
+        exit(1);
+    }
+    
+    int node_id = std::stoi(argv[1]);
+
+    init_logger(node_id);
+    
+    std::string ip = argv[2];
+    int port = std::stoi(argv[3]);
+    int election_elapsed_time = std::stoi(argv[4])* 1000;
+    spdlog::debug("Election timeout: {}ms", election_elapsed_time);
+        
+    
+    // 解析集群节点信息
+    std::vector<std::pair<std::string, int>> peers;
+    for (int i = 5; i < argc; ++i) {
+        std::string peer_addr = argv[i];
+        size_t colon_pos = peer_addr.find(':');
+        if (colon_pos != std::string::npos) {
+            std::string peer_ip = peer_addr.substr(0, colon_pos);
+            int peer_port = std::stoi(peer_addr.substr(colon_pos + 1));
+            peers.emplace_back(peer_ip, peer_port);
+        } else {
+            std::cerr << "Invalid peer address format: " << peer_addr << std::endl;
+            exit(1);
+        }
+    }
+
+    // spdlog::info("Initializing Raft node {} on {}:{}", node_id, ip, port);
+    spdlog::info("Cluster peers:");
+    for (const auto& peer : peers) {
+        spdlog::info("{}:{}", peer.first, peer.second);
+    }
+        // 创建Raft节点实例
+    auto node = std::make_shared<RaftNode>(node_id, ip, port, peers,election_elapsed_time);
+    spdlog::debug("Raft node {} initialized on {}:{}", node_id, ip, port);
+    
+    // 启动节点
+    node->start_client();    
+    return node;
 }

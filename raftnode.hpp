@@ -30,7 +30,10 @@ public:
     VoteReply handle_vote_request(const VoteRequest& request);
     AppendReply handle_append_request(const AppendRequest& request);
     void handle_heartbeat_request(const AppendRequest& request,AppendReply& reply);
-
+    int get_leader_id(){
+        std::lock_guard<std::mutex> lock(mutex_);
+        return leader_id_;
+    }
 
     using StateMachineCallback = std::function<bool(int32_t log_index, const LogEntry& entry)>;
 
@@ -45,7 +48,7 @@ private:
     std::string ip_;
     int port_;
     StateMachineCallback state_machine_callback_;
-    
+    int leader_id_;
     // 集群配置
     int election_elapsed_time_;
     std::vector<std::pair<std::string, int>> peers_;  // 存储其他节点的地址信息
@@ -115,3 +118,8 @@ private:
     
     void apply_logs_to_state_machine(int32_t from_index, int32_t to_index);
 };
+
+
+void init_logger(int node_id);
+
+std::shared_ptr<RaftNode> initialize_server(int argc, char* argv[]);
