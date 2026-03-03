@@ -1,6 +1,6 @@
 file(REMOVE_RECURSE
-  "/home/yjj/Raft_distributes/bin/distributed_lock_active"
-  "/home/yjj/Raft_distributes/bin/distributed_lock_active.pdb"
+  "/root/Raft/bin/distributed_lock_active"
+  "/root/Raft/bin/distributed_lock_active.pdb"
   "CMakeFiles/distributed_lock_active.dir/Asio_mrpc/include/mrpc/ZookeeperUtil.cpp.o"
   "CMakeFiles/distributed_lock_active.dir/Asio_mrpc/include/mrpc/ZookeeperUtil.cpp.o.d"
   "CMakeFiles/distributed_lock_active.dir/example/distributed_lock_active.cpp.o"

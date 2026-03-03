@@ -53,10 +53,10 @@ RM = /usr/bin/cmake -E rm -f
 EQUALS = =
 
 # The top-level source directory on which CMake was run.
-CMAKE_SOURCE_DIR = /home/yjj/Raft_distributes
+CMAKE_SOURCE_DIR = /root/Raft
 
 # The top-level build directory on which CMake was run.
-CMAKE_BINARY_DIR = /home/yjj/Raft_distributes/build
+CMAKE_BINARY_DIR = /root/Raft/build
 
 # Include any dependencies generated for this target.
 include CMakeFiles/distributed_lock_active.dir/depend.make
@@ -70,46 +70,46 @@ include CMakeFiles/distributed_lock_active.dir/progress.make
 include CMakeFiles/distributed_lock_active.dir/flags.make
 
 CMakeFiles/distributed_lock_active.dir/example/distributed_lock_active.cpp.o: CMakeFiles/distributed_lock_active.dir/flags.make
-CMakeFiles/distributed_lock_active.dir/example/distributed_lock_active.cpp.o: /home/yjj/Raft_distributes/example/distributed_lock_active.cpp
+CMakeFiles/distributed_lock_active.dir/example/distributed_lock_active.cpp.o: /root/Raft/example/distributed_lock_active.cpp
 CMakeFiles/distributed_lock_active.dir/example/distributed_lock_active.cpp.o: CMakeFiles/distributed_lock_active.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/yjj/Raft_distributes/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_1) "Building CXX object CMakeFiles/distributed_lock_active.dir/example/distributed_lock_active.cpp.o"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/distributed_lock_active.dir/example/distributed_lock_active.cpp.o -MF CMakeFiles/distributed_lock_active.dir/example/distributed_lock_active.cpp.o.d -o CMakeFiles/distributed_lock_active.dir/example/distributed_lock_active.cpp.o -c /home/yjj/Raft_distributes/example/distributed_lock_active.cpp
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/root/Raft/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_1) "Building CXX object CMakeFiles/distributed_lock_active.dir/example/distributed_lock_active.cpp.o"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/distributed_lock_active.dir/example/distributed_lock_active.cpp.o -MF CMakeFiles/distributed_lock_active.dir/example/distributed_lock_active.cpp.o.d -o CMakeFiles/distributed_lock_active.dir/example/distributed_lock_active.cpp.o -c /root/Raft/example/distributed_lock_active.cpp
 
 CMakeFiles/distributed_lock_active.dir/example/distributed_lock_active.cpp.i: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/distributed_lock_active.dir/example/distributed_lock_active.cpp.i"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/yjj/Raft_distributes/example/distributed_lock_active.cpp > CMakeFiles/distributed_lock_active.dir/example/distributed_lock_active.cpp.i
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /root/Raft/example/distributed_lock_active.cpp > CMakeFiles/distributed_lock_active.dir/example/distributed_lock_active.cpp.i
 
 CMakeFiles/distributed_lock_active.dir/example/distributed_lock_active.cpp.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/distributed_lock_active.dir/example/distributed_lock_active.cpp.s"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/yjj/Raft_distributes/example/distributed_lock_active.cpp -o CMakeFiles/distributed_lock_active.dir/example/distributed_lock_active.cpp.s
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /root/Raft/example/distributed_lock_active.cpp -o CMakeFiles/distributed_lock_active.dir/example/distributed_lock_active.cpp.s
 
 CMakeFiles/distributed_lock_active.dir/raftnode.cpp.o: CMakeFiles/distributed_lock_active.dir/flags.make
-CMakeFiles/distributed_lock_active.dir/raftnode.cpp.o: /home/yjj/Raft_distributes/raftnode.cpp
+CMakeFiles/distributed_lock_active.dir/raftnode.cpp.o: /root/Raft/raftnode.cpp
 CMakeFiles/distributed_lock_active.dir/raftnode.cpp.o: CMakeFiles/distributed_lock_active.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/yjj/Raft_distributes/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Building CXX object CMakeFiles/distributed_lock_active.dir/raftnode.cpp.o"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/distributed_lock_active.dir/raftnode.cpp.o -MF CMakeFiles/distributed_lock_active.dir/raftnode.cpp.o.d -o CMakeFiles/distributed_lock_active.dir/raftnode.cpp.o -c /home/yjj/Raft_distributes/raftnode.cpp
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/root/Raft/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Building CXX object CMakeFiles/distributed_lock_active.dir/raftnode.cpp.o"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/distributed_lock_active.dir/raftnode.cpp.o -MF CMakeFiles/distributed_lock_active.dir/raftnode.cpp.o.d -o CMakeFiles/distributed_lock_active.dir/raftnode.cpp.o -c /root/Raft/raftnode.cpp
 
 CMakeFiles/distributed_lock_active.dir/raftnode.cpp.i: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/distributed_lock_active.dir/raftnode.cpp.i"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/yjj/Raft_distributes/raftnode.cpp > CMakeFiles/distributed_lock_active.dir/raftnode.cpp.i
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /root/Raft/raftnode.cpp > CMakeFiles/distributed_lock_active.dir/raftnode.cpp.i
 
 CMakeFiles/distributed_lock_active.dir/raftnode.cpp.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/distributed_lock_active.dir/raftnode.cpp.s"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/yjj/Raft_distributes/raftnode.cpp -o CMakeFiles/distributed_lock_active.dir/raftnode.cpp.s
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /root/Raft/raftnode.cpp -o CMakeFiles/distributed_lock_active.dir/raftnode.cpp.s
 
 CMakeFiles/distributed_lock_active.dir/Asio_mrpc/include/mrpc/ZookeeperUtil.cpp.o: CMakeFiles/distributed_lock_active.dir/flags.make
-CMakeFiles/distributed_lock_active.dir/Asio_mrpc/include/mrpc/ZookeeperUtil.cpp.o: /home/yjj/Raft_distributes/Asio_mrpc/include/mrpc/ZookeeperUtil.cpp
+CMakeFiles/distributed_lock_active.dir/Asio_mrpc/include/mrpc/ZookeeperUtil.cpp.o: /root/Raft/Asio_mrpc/include/mrpc/ZookeeperUtil.cpp
 CMakeFiles/distributed_lock_active.dir/Asio_mrpc/include/mrpc/ZookeeperUtil.cpp.o: CMakeFiles/distributed_lock_active.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/yjj/Raft_distributes/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_3) "Building CXX object CMakeFiles/distributed_lock_active.dir/Asio_mrpc/include/mrpc/ZookeeperUtil.cpp.o"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/distributed_lock_active.dir/Asio_mrpc/include/mrpc/ZookeeperUtil.cpp.o -MF CMakeFiles/distributed_lock_active.dir/Asio_mrpc/include/mrpc/ZookeeperUtil.cpp.o.d -o CMakeFiles/distributed_lock_active.dir/Asio_mrpc/include/mrpc/ZookeeperUtil.cpp.o -c /home/yjj/Raft_distributes/Asio_mrpc/include/mrpc/ZookeeperUtil.cpp
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/root/Raft/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_3) "Building CXX object CMakeFiles/distributed_lock_active.dir/Asio_mrpc/include/mrpc/ZookeeperUtil.cpp.o"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/distributed_lock_active.dir/Asio_mrpc/include/mrpc/ZookeeperUtil.cpp.o -MF CMakeFiles/distributed_lock_active.dir/Asio_mrpc/include/mrpc/ZookeeperUtil.cpp.o.d -o CMakeFiles/distributed_lock_active.dir/Asio_mrpc/include/mrpc/ZookeeperUtil.cpp.o -c /root/Raft/Asio_mrpc/include/mrpc/ZookeeperUtil.cpp
 
 CMakeFiles/distributed_lock_active.dir/Asio_mrpc/include/mrpc/ZookeeperUtil.cpp.i: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/distributed_lock_active.dir/Asio_mrpc/include/mrpc/ZookeeperUtil.cpp.i"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/yjj/Raft_distributes/Asio_mrpc/include/mrpc/ZookeeperUtil.cpp > CMakeFiles/distributed_lock_active.dir/Asio_mrpc/include/mrpc/ZookeeperUtil.cpp.i
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /root/Raft/Asio_mrpc/include/mrpc/ZookeeperUtil.cpp > CMakeFiles/distributed_lock_active.dir/Asio_mrpc/include/mrpc/ZookeeperUtil.cpp.i
 
 CMakeFiles/distributed_lock_active.dir/Asio_mrpc/include/mrpc/ZookeeperUtil.cpp.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/distributed_lock_active.dir/Asio_mrpc/include/mrpc/ZookeeperUtil.cpp.s"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/yjj/Raft_distributes/Asio_mrpc/include/mrpc/ZookeeperUtil.cpp -o CMakeFiles/distributed_lock_active.dir/Asio_mrpc/include/mrpc/ZookeeperUtil.cpp.s
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /root/Raft/Asio_mrpc/include/mrpc/ZookeeperUtil.cpp -o CMakeFiles/distributed_lock_active.dir/Asio_mrpc/include/mrpc/ZookeeperUtil.cpp.s
 
 # Object files for target distributed_lock_active
 distributed_lock_active_OBJECTS = \
@@ -120,17 +120,17 @@ distributed_lock_active_OBJECTS = \
 # External object files for target distributed_lock_active
 distributed_lock_active_EXTERNAL_OBJECTS =
 
-/home/yjj/Raft_distributes/bin/distributed_lock_active: CMakeFiles/distributed_lock_active.dir/example/distributed_lock_active.cpp.o
-/home/yjj/Raft_distributes/bin/distributed_lock_active: CMakeFiles/distributed_lock_active.dir/raftnode.cpp.o
-/home/yjj/Raft_distributes/bin/distributed_lock_active: CMakeFiles/distributed_lock_active.dir/Asio_mrpc/include/mrpc/ZookeeperUtil.cpp.o
-/home/yjj/Raft_distributes/bin/distributed_lock_active: CMakeFiles/distributed_lock_active.dir/build.make
-/home/yjj/Raft_distributes/bin/distributed_lock_active: /usr/lib/x86_64-linux-gnu/libzookeeper_mt.so
-/home/yjj/Raft_distributes/bin/distributed_lock_active: CMakeFiles/distributed_lock_active.dir/link.txt
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/home/yjj/Raft_distributes/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_4) "Linking CXX executable /home/yjj/Raft_distributes/bin/distributed_lock_active"
+/root/Raft/bin/distributed_lock_active: CMakeFiles/distributed_lock_active.dir/example/distributed_lock_active.cpp.o
+/root/Raft/bin/distributed_lock_active: CMakeFiles/distributed_lock_active.dir/raftnode.cpp.o
+/root/Raft/bin/distributed_lock_active: CMakeFiles/distributed_lock_active.dir/Asio_mrpc/include/mrpc/ZookeeperUtil.cpp.o
+/root/Raft/bin/distributed_lock_active: CMakeFiles/distributed_lock_active.dir/build.make
+/root/Raft/bin/distributed_lock_active: /usr/lib/x86_64-linux-gnu/libzookeeper_mt.so
+/root/Raft/bin/distributed_lock_active: CMakeFiles/distributed_lock_active.dir/link.txt
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/root/Raft/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_4) "Linking CXX executable /root/Raft/bin/distributed_lock_active"
 	$(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/distributed_lock_active.dir/link.txt --verbose=$(VERBOSE)
 
 # Rule to build all files generated by this target.
-CMakeFiles/distributed_lock_active.dir/build: /home/yjj/Raft_distributes/bin/distributed_lock_active
+CMakeFiles/distributed_lock_active.dir/build: /root/Raft/bin/distributed_lock_active
 .PHONY : CMakeFiles/distributed_lock_active.dir/build
 
 CMakeFiles/distributed_lock_active.dir/clean:
@@ -138,6 +138,6 @@ CMakeFiles/distributed_lock_active.dir/clean:
 .PHONY : CMakeFiles/distributed_lock_active.dir/clean
 
 CMakeFiles/distributed_lock_active.dir/depend:
-	cd /home/yjj/Raft_distributes/build && $(CMAKE_COMMAND) -E cmake_depends "Unix Makefiles" /home/yjj/Raft_distributes /home/yjj/Raft_distributes /home/yjj/Raft_distributes/build /home/yjj/Raft_distributes/build /home/yjj/Raft_distributes/build/CMakeFiles/distributed_lock_active.dir/DependInfo.cmake "--color=$(COLOR)"
+	cd /root/Raft/build && $(CMAKE_COMMAND) -E cmake_depends "Unix Makefiles" /root/Raft /root/Raft /root/Raft/build /root/Raft/build /root/Raft/build/CMakeFiles/distributed_lock_active.dir/DependInfo.cmake "--color=$(COLOR)"
 .PHONY : CMakeFiles/distributed_lock_active.dir/depend
 
