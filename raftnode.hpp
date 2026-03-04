@@ -10,7 +10,7 @@
 #include <atomic>
 #include <thread>
 #include <chrono>
-#include "struct.hpp"
+#include "call_back.hpp"
 using namespace std::chrono_literals;
 using namespace mrpc;
 class RaftNode {
@@ -39,10 +39,21 @@ public:
         std::lock_guard<std::mutex> lock(mutex_);
         apply_callback_ = std::move(callback);
     }
+    template<typename... Args>
+    LogEntry pack_logentry(const std::string& command_type, Args&&... args) {
+        LogEntry entry;
+        entry.command_type = command_type;
+        // 核心：将任意参数打包为 JSON 数组
+        nlohmann::json args_json = nlohmann::json::array({std::forward<Args>(args)...});
+        entry.buffer = args_json.dump();  // 序列化到 buffer
+        return entry;
+    }
+    
 
     void wait_for(int64_t req_id);
     int node_id_;
     std::unordered_map<int64_t, std::promise<bool>> lock_store_;
+    RegisterCallback callback_reg;
 private:
     // 节点基本信息
     std::string ip_;
@@ -122,6 +133,8 @@ private:
     bool is_log_up_to_date(int32_t last_log_term, int32_t last_log_index) const;
 
     int find_leader();
+
+
 };
 
 

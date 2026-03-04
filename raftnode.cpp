@@ -448,29 +448,21 @@ void RaftNode::apply_logs_to_state_machine(int32_t from_index, int32_t to_index)
 
         spdlog::debug("Node {}: 正在准备将index={}的日志条目 {} = {} 应用到状态机。", node_id_, i, entry.key, entry.value);
         // 核心：调用业务回调函数执行业务逻辑
-        bool callback_ok = true;
-        if (apply_callback_) {
-            try {
-                callback_ok = apply_callback_(i, entry);
-            } catch (const std::exception& e) {
-                spdlog::error("Node {}: Callback failed for log index {}: {}", node_id_, i, e.what());
-                callback_ok = false;
-            }
-        } else {
-            spdlog::warn("Node {}: No state machine callback set for log index {}", node_id_, i);
-            // 无回调时的默认行为（可选）：打印日志
-            spdlog::info("Node {}: Apply log entry {} (term {}): {}={}", 
-                         node_id_, i, entry.term, entry.key, entry.value);
+        try {
+            callback_reg.trigger_by_logentry(entry);
+        } catch (const std::exception& e) {
+            spdlog::error("Node {}: Callback failed for log index {}: {}", node_id_, i, e.what());
+            continue;
         }
-
-        // 只有回调执行成功，才更新 last_applied_（保证业务逻辑和日志应用的一致性）
-        if (callback_ok) {
-            last_applied_.store(i);
-            spdlog::debug("Node {}: Applied log index {} to state machine.", node_id_, i);
-        } else {
-            spdlog::warn("Node {}: Applied log index {}, but business logic returned failure.", node_id_, i);
+        auto it = lock_store_.find(entry.req_id);
+        if (it != lock_store_.end()) {
+            it->second.set_value(true);
         }
+        
+        // 更新 last_applied_，标记该日志已被应用
+        
     }
+    last_applied_.store(to_index);
 }
 
 void RaftNode::run_apply_loop() {
@@ -732,12 +724,13 @@ int RaftNode::find_leader(){
 
 int64_t RaftNode::submit(const LogEntry& entry) {
     // 1. 检查当前节点是否为 Leader
+    int64_t request_id = -1;
     if (state_.load() != LEADER) {
         spdlog::warn("Node {}: Not leader, cannot submit log entry.", node_id_);
         int leader_id = find_leader();
         if(leader_id == -1){
             spdlog::warn("Node {}: Failed to find leader.", node_id_);
-            return -1;
+            request_id = -1;
         }
         auto conn=peer_connections_[leader_id];
         if(!conn) {
@@ -745,40 +738,46 @@ int64_t RaftNode::submit(const LogEntry& entry) {
             spdlog::warn("Node {}: trying to connect to leader {}.", node_id_, leader_id);
             peer_connections_[leader_id] = client_.connect(peers_[leader_id].first, peers_[leader_id].second,1);//尝试重新连接
             if(peer_connections_[leader_id]) total_nodes_count_++;
-            else return -1;   //还是连接不上就返回失败
+            else request_id = -1;   //还是连接不上就返回失败
         }
 
         spdlog::debug("Node {}: Sending log entry {} = {} to leader {}", node_id_, entry.key, entry.value, leader_id);
         auto reply = conn->call<int64_t>("submit", entry);
         if (reply.error_code() == mrpc::ok) {
             spdlog::info("成功向leader {}提交日志条目 {} = {}", leader_id, entry.key, entry.value);
-            return reply.value();
+            request_id = reply.value();
         } else {
             spdlog::error("Node {}: Failed to submit log entry to leader {}: {}", node_id_, leader_id, reply.error_msg());
-            return -1;
+            request_id = -1;
         }
 
     }
-
-    spdlog::debug("进入正式push阶段了");
-    // 2. 加锁写入日志（保证日志的原子性）
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        auto new_entry = std::move(entry);
-        new_entry.term = current_term_.load();
-        request_id_++;
-        new_entry.req_id = request_id_;
-        // 核心修改：如果是 Leader，设置确定的逻辑时间戳（毫秒）
-        if (new_entry.timestamp == 0) {
-            new_entry.timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::system_clock::now().time_since_epoch()).count();
+    else{
+        spdlog::debug("进入正式push阶段了");
+        // 2. 加锁写入日志（保证日志的原子性）
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            auto new_entry = std::move(entry);
+            new_entry.term = current_term_.load();
+            request_id_++;
+            new_entry.req_id = request_id_;
+            request_id = new_entry.req_id;
+            // 核心修改：如果是 Leader，设置确定的逻辑时间戳（毫秒）
+            if (new_entry.timestamp == 0) {
+                new_entry.timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count();
+            }
+            
+            log_.push_back(new_entry);
+            spdlog::info("Node {}: Submitted log entry (index {}, term {}) type {}", 
+                        node_id_, log_.size()-1, current_term_.load(), new_entry.command_type);
         }
-        
-        log_.push_back(new_entry);
-        spdlog::info("Node {}: Submitted log entry (index {}, term {}) type {}", 
-                     node_id_, log_.size()-1, current_term_.load(), new_entry.command_type);
     }
-    return request_id_;
+    
+    if(request_id != -1){
+        wait_for(request_id);
+    }
+    return request_id;
 }
 
 void init_logger(int node_id) {

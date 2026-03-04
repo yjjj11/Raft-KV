@@ -55,7 +55,7 @@ target_link_libraries(node
     ${ZK_LIB}           # ZooKeeper 库（从子目录继承）
     Threads::Threads    # 现在能找到这个目标了
 )
-# 创建可执行文件
+# # 创建可执行文件
 add_executable(kv_store
      example/kv_store.cpp
      raftnode.cpp
@@ -68,19 +68,6 @@ target_link_libraries(kv_store
     Threads::Threads    # 现在能找到这个目标了
 )
 
-# 创建分布式锁示例可执行文件
-add_executable(distributed_lock_active
-     example/distributed_lock_active.cpp
-     raftnode.cpp
-     ${MRPC_SRC_FILES} 
-)
-
-target_link_libraries(distributed_lock_active 
-    PRIVATE  # 推荐添加PRIVATE，明确依赖作用域
-    ${ZK_LIB}           # ZooKeeper 库（从子目录继承）
-    Threads::Threads    # 现在能找到这个目标了
-)
-
 add_executable(distributed_lock
      example/distributed_lock.cpp
      raftnode.cpp
@@ -88,6 +75,30 @@ add_executable(distributed_lock
 )
 
 target_link_libraries(distributed_lock 
+    PRIVATE  # 推荐添加PRIVATE，明确依赖作用域
+    ${ZK_LIB}           # ZooKeeper 库（从子目录继承）
+    Threads::Threads    # 现在能找到这个目标了
+)
+
+# add_executable(config_center
+#      example/config_center.cpp
+#      raftnode.cpp
+#      ${MRPC_SRC_FILES} 
+# )
+
+# target_link_libraries(config_center 
+#     PRIVATE  # 推荐添加PRIVATE，明确依赖作用域
+#     ${ZK_LIB}           # ZooKeeper 库（从子目录继承）
+#     Threads::Threads    # 现在能找到这个目标了
+# )
+
+add_executable(test_callback
+     example/test_callback.cpp
+     raftnode.cpp
+     ${MRPC_SRC_FILES} 
+)
+
+target_link_libraries(test_callback 
     PRIVATE  # 推荐添加PRIVATE，明确依赖作用域
     ${ZK_LIB}           # ZooKeeper 库（从子目录继承）
     Threads::Threads    # 现在能找到这个目标了

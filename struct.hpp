@@ -8,15 +8,16 @@ using json = nlohmann::json;
 // 先引入自定义的Raft消息结构体（和之前定义的保持一致）
 struct LogEntry {
     int32_t term = 0;          // 任期号，默认初始化0
-    std::string key;           // 键
-    std::string value;         // 值
+    std::string key="Null";           // 键
+    std::string value="Null";         // 值
     std::string command_type;  // 命令（PUT/DEL/LOCK/UNLOCK）
     int64_t timestamp = 0;     // Leader 产生该日志时的 Unix 时间戳（毫秒）
     int64_t ttl = 0;           // 锁的过期时间（毫秒），0 表示永不过期
     int64_t req_id = 0;       // 锁的唯一标识符
+    std::string buffer;       // 命令参数（JSON格式）
 };
 
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(LogEntry, term, key, value, command_type, timestamp, ttl, req_id)
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(LogEntry, term, key, value, command_type, timestamp, ttl, req_id, buffer)
 
 // 投票请求结构体（对应 VoteRequest 消息）
 struct VoteRequest {
