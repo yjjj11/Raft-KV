@@ -1,0 +1,5 @@
+bin/*
+.cache/*
+build/*
+bin/*
+compile_commands.json
