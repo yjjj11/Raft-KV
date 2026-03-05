@@ -25,13 +25,46 @@ struct ValueWithExpiry {
     }
 };
 
-class KvStore {
+
+class KvService {
 public:
-    // 1. 应用 Put 操作
+    KvService(std::shared_ptr<RaftNode> raft_node) 
+        : raft_node_(raft_node) {
+            raft_node_->callback_reg.reg_callback("Put", this, &KvService::apply_put);
+            raft_node_->callback_reg.reg_callback("Del", this, &KvService::apply_del);
+            raft_node_->callback_reg.reg_callback("Cas", this, &KvService::apply_cas);
+            raft_node_->callback_reg.reg_callback("PutWithTTL", this, &KvService::apply_put_with_ttl);
+            raft_node_->callback_reg.reg_callback("TestFalse", this, &KvService::test_false);
+            raft_node_->callback_reg.reg_callback("CasWithTTL", this, &KvService::apply_cas_with_ttl);
+        }
+
     bool apply_put(const std::string& key, const std::string& value) {
         spdlog::info("Applying PUT: {} = {}", key, value);
         // 无限期存储，设置一个极大过期时间
         kv_store_[key] = ValueWithExpiry(value);
+
+        auto it = watcher_reg.invokes_.find("put" );
+        if (it != watcher_reg.invokes_.end()) {
+            nlohmann::json args_json = nlohmann::json::array({key, value});
+            it->second(args_json.dump());
+            // watcher_reg.invokes_.erase(it);
+        }
+        return true;
+    }
+
+    bool apply_add_task_(const std::string& key, const std::string& value) {
+        spdlog::info("Applying ADD_TASK: {} = {}", key, value);
+        // 无限期存储，设置一个极大过期时间
+        // kv_store_[key] = ValueWithExpiry(value);
+
+
+
+        auto it = watcher_reg.invokes_.find("add_" + key);
+        if (it != watcher_reg.invokes_.end()) {
+            nlohmann::json args_json = nlohmann::json::array({key, value});
+            it->second(args_json.dump());
+            watcher_reg.invokes_.erase(it);
+        }
         return true;
     }
 
@@ -158,23 +191,8 @@ public:
 private:
     mutable std::mutex store_mutex_; // 保护 kv_store_ 的锁
     std::unordered_map<std::string, ValueWithExpiry> kv_store_;
-    
-};
 
-
-class KvService {
 public:
-    KvService(std::shared_ptr<RaftNode> raft_node) 
-        : raft_node_(raft_node) {
-            raft_node_->callback_reg.reg_callback("Put", &kv_store_, &KvStore::apply_put);
-            raft_node_->callback_reg.reg_callback("Del", &kv_store_, &KvStore::apply_del);
-            raft_node_->callback_reg.reg_callback("Cas", &kv_store_, &KvStore::apply_cas);
-            raft_node_->callback_reg.reg_callback("PutWithTTL", &kv_store_, &KvStore::apply_put_with_ttl);
-            raft_node_->callback_reg.reg_callback("TestFalse", &kv_store_, &KvStore::test_false);
-            raft_node_->callback_reg.reg_callback("CasWithTTL", &kv_store_, &KvStore::apply_cas_with_ttl);
-            kv_store_.node_id_=raft_node_->node_id_;
-        }
-
     // 安全的写入操作
     int64_t Put(const std::string& key, const std::string& value) {
         auto entry = raft_node_->pack_logentry("Put", key, value);
@@ -236,15 +254,8 @@ public:
             std::cout<<"Get 提交失败"<<std::endl;
             return ""; // 操作失败
         }
-        auto opt_value = kv_store_.unsafe_get(key);
+        auto opt_value = unsafe_get(key);
         return opt_value ? *opt_value : "";
-    }
-
-    // --- 以下为辅助方法 ---
-
-    // 获取值，但不通过 Raft 日志，直接从本地状态机读取（可能读到过期数据）
-    std::optional<std::string> unsafe_Get(const std::string& key) const {
-        return kv_store_.unsafe_get(key);
     }
 
     // --- 新增：检查键是否存在且未过期 ---
@@ -255,7 +266,7 @@ public:
             std::cout<<"Exists 提交失败"<<std::endl;
             return false; // 操作失败
         }
-        return kv_store_.unsafe_get(key).has_value();
+        return unsafe_get(key).has_value();
     }
 
     // 新增：测试方法，返回 false
@@ -310,8 +321,20 @@ public:
         bool cas_success = get_reply_by_id(cas_req_id);
         return cas_success;
     }
-
 private:
-    KvStore kv_store_;
     std::shared_ptr<RaftNode> raft_node_;
+
+public:
+
+    template<typename Function>
+    void WATCH(std::string command_type,Function&& f) {
+        watcher_reg.reg_callback(command_type, std::forward<Function>(f));
+    }
+
+    template<typename ClassType, typename ReturnType, typename... Args>
+    void WATCH(std::string command_type, ClassType* instance, ReturnType (ClassType::*mem_func)(Args...)) {
+        watcher_reg.reg_callback(command_type, instance, mem_func);
+    }
+
+    RegisterCallback watcher_reg;
 };

@@ -66,3 +66,48 @@ NLOHMANN_JSON_SERIALIZE_ENUM(State, {
     {State::CANDIDATE, "CANDIDATE"},
     {State::LEADER, "LEADER"}
 })
+
+enum class TaskStatus {
+    Pending,
+    Executing,
+    Completed,
+    Failed
+};
+
+// 为 TaskStatus 提供 to/from json 的转换函数
+namespace nlohmann {
+    template <>
+    struct adl_serializer<TaskStatus> {
+        static void to_json(json& j, const TaskStatus& status) {
+            switch(status) {
+                case TaskStatus::Pending: j = "pending"; break;
+                case TaskStatus::Executing: j = "executing"; break;
+                case TaskStatus::Completed: j = "completed"; break;
+                case TaskStatus::Failed: j = "failed"; break;
+            }
+        }
+
+        static void from_json(const json& j, TaskStatus& status) {
+            std::string s = j;
+            if (s == "pending") status = TaskStatus::Pending;
+            else if (s == "executing") status = TaskStatus::Executing;
+            else if (s == "completed") status = TaskStatus::Completed;
+            else if (s == "failed") status = TaskStatus::Failed;
+            else throw std::runtime_error("invalid task status string: " + s);
+        }
+    };
+}
+
+using TaskId = std::string;
+using TaskPayload = std::string;
+using ExecuteTimeMs = int64_t; // Unix timestamp in milliseconds
+// 任务结构体
+struct ScheduledTask {
+    TaskId id;
+    ExecuteTimeMs execute_at; // 执行时间戳 (毫秒)
+    TaskPayload payload;      // 任务负载
+    TaskStatus status;        // 任务状态
+};
+
+// 使用宏自动定义序列化/反序列化逻辑
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(ScheduledTask, id, execute_at, payload, status);

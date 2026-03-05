@@ -122,3 +122,16 @@ target_link_libraries(test_callback
 #     ${ZK_LIB}           # ZooKeeper 库（从子目录继承）
 #     Threads::Threads    # 现在能找到这个目标了
 # )
+
+
+add_executable(test_watch_all_in_kv_service
+     example/test_watch_all_in_kv_service.cpp
+     raftnode.cpp
+     ${MRPC_SRC_FILES} 
+)
+
+target_link_libraries(test_watch_all_in_kv_service 
+    PRIVATE  # 推荐添加PRIVATE，明确依赖作用域
+    ${ZK_LIB}           # ZooKeeper 库（从子目录继承）
+    Threads::Threads    # 现在能找到这个目标了
+)
