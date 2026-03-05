@@ -157,7 +157,7 @@ void RaftNode::setup_rpc_handlers() {
 }
 
 bool RaftNode::is_leader(int node_id) {
-    spdlog::debug("Node {}: Checking if node {} is leader.", node_id_, node_id);
+    // spdlog::debug("Node {}: Checking if node {} is leader.", node_id_, node_id);
     return (state_.load() == LEADER);
 }
 void RaftNode::start_server() {
@@ -194,19 +194,19 @@ void RaftNode::start_client() {
             peer_connections_.push_back(nullptr);  // 保持索引对应
         }
     }
-    for (int i = 0; i < peer_connections_.size(); ++i) {
-        if (!peer_connections_[i]) {
-            auto conn = client_.connect(peers_[i].first, peers_[i].second,1);
-            if (conn) {
-                peer_connections_[i] = conn;
-                total_nodes_count_++;
-                spdlog::debug("Connected to peer: {}:{}", peers_[i].first, peers_[i].second);
-            } else {
-                spdlog::error("Failed to connect to peer: {}:{}", peers_[i].first, peers_[i].second);
-                peer_connections_[i] = nullptr;  // 保持索引对应
-            }
-        }
-    }
+    // for (int i = 0; i < peer_connections_.size(); ++i) {
+    //     if (!peer_connections_[i]) {
+    //         auto conn = client_.connect(peers_[i].first, peers_[i].second,1);
+    //         if (conn) {
+    //             peer_connections_[i] = conn;
+    //             total_nodes_count_++;
+    //             spdlog::debug("Connected to peer: {}:{}", peers_[i].first, peers_[i].second);
+    //         } else {
+    //             spdlog::error("Failed to connect to peer: {}:{}", peers_[i].first, peers_[i].second);
+    //             peer_connections_[i] = nullptr;  // 保持索引对应
+    //         }
+    //     }
+    // }
 
     // 启动选举超时监控线程
     election_thread_ = std::thread(&RaftNode::run_election_timeout, this);
@@ -432,7 +432,7 @@ bool RaftNode::check_if_log_is_ok(const AppendRequest& request){
 }
 
 void RaftNode::apply_logs_to_state_machine(int32_t from_index, int32_t to_index) {
-    spdlog::debug("Node {}: Applying logs from index {} to {} to state machine.", node_id_, from_index, to_index);
+    // spdlog::debug("Node {}: Applying logs from index {} to {} to state machine.", node_id_, from_index, to_index);
 
     // 1. 批量获取日志条目，减少锁的持有时间
     std::vector<LogEntry> entries_to_apply;
@@ -452,7 +452,7 @@ void RaftNode::apply_logs_to_state_machine(int32_t from_index, int32_t to_index)
         const auto& entry = entries_to_apply[idx];
         int32_t log_index = from_index + idx; // 计算出原始日志索引
 
-        spdlog::debug("Node {}: 正在准备将index={}的日志条目 {} 应用到状态机。", node_id_, log_index, entry.command_type);
+        // spdlog::debug("Node {}: 正在准备将index={}的日志条目 {} 应用到状态机。", node_id_, log_index, entry.command_type);
         bool success = false;
         try {
             success = callback_reg.trigger_by_logentry(entry);
@@ -717,8 +717,8 @@ int RaftNode::find_leader(){
     for(int i=0;i<peer_connections_.size();i++){
         auto conn=peer_connections_[i];
         if(!conn) {
-            std::unique_lock<std::mutex> lock(conns_mutex_);
             peer_connections_[i] = client_.connect(peers_[i].first, peers_[i].second,1);//尝试重新连接
+            conn=peer_connections_[i];
             if(peer_connections_[i]) total_nodes_count_++;
             else continue;   //还是连接不上就跳过
         }
@@ -736,7 +736,6 @@ int64_t RaftNode::submit(const LogEntry& entry) {
     // 1. 检查当前节点是否为 Leader
     int64_t request_id = -1;
     if (state_.load() != LEADER) {
-        spdlog::warn("Node {}: Not leader, cannot submit log entry.", node_id_);
         int leader_id = find_leader();
         if(leader_id == -1){
             spdlog::warn("Node {}: Failed to find leader.", node_id_);
@@ -751,11 +750,11 @@ int64_t RaftNode::submit(const LogEntry& entry) {
             else request_id = -1;   //还是连接不上就返回失败
         }
 
-        spdlog::debug("Node {}: Sending log entry {} to leader {}", node_id_, entry.command_type, leader_id);
         auto reply = conn->call<int64_t>("submit", entry);
         if (reply.error_code() == mrpc::ok) {
             spdlog::info("成功向leader {}提交日志条目 {}", leader_id, entry.command_type);
             request_id = reply.value();
+            lock_store_.emplace(request_id, std::make_shared<std::promise<bool>>());
             return request_id;
 
         } else {
@@ -776,8 +775,8 @@ int64_t RaftNode::submit(const LogEntry& entry) {
             request_id = new_entry.req_id;
             lock_store_.emplace(request_id, std::make_shared<std::promise<bool>>());
             log_.push_back(new_entry);
-            spdlog::info("Node {}: Submitted log entry (index {}, term {}) type {}", 
-                        node_id_, log_.size()-1, current_term_.load(), new_entry.command_type);
+            // spdlog::info("Node {}: Submitted log entry (index {}, term {}) type {}", 
+                        // node_id_, log_.size()-1, current_term_.load(), new_entry.command_type);
         }
     }
     
@@ -813,7 +812,7 @@ bool RaftNode::wait_for(int64_t req_id) {
     auto it = lock_store_.find(req_id);
     if (it == lock_store_.end()) {
         spdlog::error("req_id {} not found in lock_store_", req_id);
-        return false;
+                return false;
     }
 
     auto future = it->second->get_future();
@@ -821,6 +820,7 @@ bool RaftNode::wait_for(int64_t req_id) {
 
     if (status == std::future_status::ready) {
         bool result = future.get();
+        return result;
         spdlog::debug("Node {}: Log entry with req_id {} applied: {}", node_id_, req_id, result);
     } else {
         spdlog::warn("Node {}: Timeout waiting for req_id {}", node_id_, req_id);
@@ -875,6 +875,6 @@ std::shared_ptr<RaftNode> initialize_server(int argc, char* argv[]){
     // 启动节点
     node->start_client();   
     
-    std::this_thread::sleep_for(std::chrono::seconds(2));
+    std::this_thread::sleep_for(std::chrono::seconds(3));
     return node;
 }

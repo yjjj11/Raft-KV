@@ -58,21 +58,21 @@ public:
         // 如果键不存在，且期望值是空字符串，则视为匹配
         if (it == kv_store_.end()) {
             if (expected_value.empty()) {
-                spdlog::info("Applying CAS: Key '{}' does not exist, expected empty. Setting to '{}'.", key, new_value);
+                spdlog::info("Applying CAS: Key '{}' does not exist, expected empty. Setting to '{}' (from node{})", key, new_value,node_id_);
                 kv_store_[key] = ValueWithExpiry(new_value);
                 return true;
             }
-            spdlog::info("Applying CAS: Key '{}' does not exist, expected '{}', CAS failed.", key, expected_value);
+            spdlog::info("Applying CAS: Key '{}' does not exist, expected '{}', CAS failed (from node{})", key, expected_value,node_id_);
             return false;
         }
         
         // 检查键是否已过期
         if (it->second.is_expired()) {
-            spdlog::info("Applying CAS: Key '{}' is expired, treating as non-existent.", key);
+            spdlog::info("Applying CAS: Key '{}' is expired, treating as non-existent (from node{})", key,node_id_);
             kv_store_.erase(it);
             // 过期后的行为：如果期望值是空，可以设置新值
             if (expected_value.empty()) {
-                spdlog::info("Applying CAS: After expiry, setting '{}' to '{}'.", key, new_value);
+                spdlog::info("Applying CAS: After expiry, setting '{}' to '{}' (from node{})", key, new_value,node_id_);
                 kv_store_[key] = ValueWithExpiry(new_value);
                 return true;
             }
@@ -81,15 +81,57 @@ public:
 
         // 比较当前值
         if (it->second.value == expected_value) {
-            spdlog::info("Applying CAS: Key '{}' matches expected value. Updating to '{}'.", key, new_value);
+            spdlog::info("Applying CAS: Key '{}' matches expected value. Updating to '{}' (from node{})", key, new_value,node_id_);
             it->second.value = new_value; // 更新值，保持原有过期时间
             return true;
         } else {
-            spdlog::info("Applying CAS: Key '{}' value '{}' does not match expected '{}', CAS failed.", key, it->second.value, expected_value);
+            spdlog::info("Applying CAS: Key '{}' value '{}' does not match expected '{}', CAS failed (from node{})", key, it->second.value, expected_value,node_id_);
             return false;
         }
     }
 
+    bool apply_cas_with_ttl(const std::string& key, const std::string& expected_value, 
+                        const std::string& new_value, long long ttl_ms) {
+        auto it = kv_store_.find(key);
+        // 键不存在 + 期望值为空 → 原子设置值+TTL
+        if (it == kv_store_.end()) {
+            if (expected_value.empty()) {
+                spdlog::info("Applying CAS_TTL: Key '{}' does not exist, set to '{}' (TTL: {}ms  from node{})", 
+                            key, new_value, ttl_ms,node_id_);
+                auto expiry = std::chrono::steady_clock::now() + std::chrono::milliseconds(ttl_ms);
+                kv_store_[key] = ValueWithExpiry(new_value, expiry);
+                return true;
+            }
+            spdlog::info("Applying CAS_TTL: Key '{}' does not exist, expected '{}', failed (from node{})", 
+                        key, expected_value,node_id_);
+            return false;
+        }
+
+        // 键已过期 → 视为不存在
+        if (it->second.is_expired()) {
+            spdlog::info("Applying CAS_TTL: Key '{}' expired, treat as non-existent (from node{})", key,node_id_);
+            kv_store_.erase(it);
+            if (expected_value.empty()) {
+                auto expiry = std::chrono::steady_clock::now() + std::chrono::milliseconds(ttl_ms);
+                kv_store_[key] = ValueWithExpiry(new_value, expiry);
+                return true;
+            }
+            return false;
+        }
+
+        // 期望值匹配 → 原子更新值+重置TTL
+        if (it->second.value == expected_value) {
+            spdlog::info("Applying CAS_TTL: Key '{}' match expected, update to '{}' (TTL: {}ms  from node{})", 
+                        key, new_value, ttl_ms,node_id_);
+            auto expiry = std::chrono::steady_clock::now() + std::chrono::milliseconds(ttl_ms);
+            it->second = ValueWithExpiry(new_value, expiry);
+            return true;
+        } else {
+            spdlog::info("Applying CAS_TTL: Key '{}' value '{}' != expected '{}', failed (from node{})", 
+                        key, it->second.value, expected_value,node_id_);
+            return false;
+        }
+    }
 
     bool test_false(){
         return false;
@@ -112,9 +154,11 @@ public:
         return std::nullopt; // Key not found
     }
 
+    int node_id_;
 private:
     mutable std::mutex store_mutex_; // 保护 kv_store_ 的锁
     std::unordered_map<std::string, ValueWithExpiry> kv_store_;
+    
 };
 
 
@@ -127,6 +171,8 @@ public:
             raft_node_->callback_reg.reg_callback("Cas", &kv_store_, &KvStore::apply_cas);
             raft_node_->callback_reg.reg_callback("PutWithTTL", &kv_store_, &KvStore::apply_put_with_ttl);
             raft_node_->callback_reg.reg_callback("TestFalse", &kv_store_, &KvStore::test_false);
+            raft_node_->callback_reg.reg_callback("CasWithTTL", &kv_store_, &KvStore::apply_cas_with_ttl);
+            kv_store_.node_id_=raft_node_->node_id_;
         }
 
     // 安全的写入操作
@@ -171,6 +217,15 @@ public:
         return result;
     }
 
+    int64_t CasWithTTL(const std::string& key, const std::string& expected_value, 
+                   const std::string& new_value, long long ttl_ms) {
+        auto entry = raft_node_->pack_logentry("CasWithTTL", key, expected_value, new_value, ttl_ms);
+        auto result = raft_node_->submit(entry);
+        if (result == -1) {
+            std::cout << "CasWithTTL 提交失败" << std::endl;
+        }
+        return result;
+    }
     // 安全的读取操作 (这里采用"转发给 Leader"的简化模型)
     std::string Get(const std::string& key) {
         // Raft 读取优化：可以实现 ReadIndex 或 Lease-based Read 以降低延迟。
@@ -218,6 +273,44 @@ public:
     bool get_reply_by_id(int64_t req_id){
         return raft_node_->wait_for(req_id);
     }
+
+    bool Get_lock(std::string lock_name , long long lock_ttl , int64_t timeout_ms){
+        // std::cout<<"Get_lock"<<std::endl;
+        auto start_time = std::chrono::steady_clock::now();
+        // std::cout << "\n--------------------正在尝试获取锁--------------------\n";
+        auto lock_value=std::to_string(raft_node_->node_id_);
+        while (1) {
+            // 1. 检查是否超时
+            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - start_time
+            ).count();
+            if (elapsed > timeout_ms) {
+                // std::cout << "\n>>> 获取锁超时（" << timeout_ms << "ms),程序退出。\n";
+                return false;
+            }
+            int64_t cas_ttl_req_id = CasWithTTL(lock_name, "", lock_value, lock_ttl);
+            if (cas_ttl_req_id == -1) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                continue;
+            }
+            bool cas_success = get_reply_by_id(cas_ttl_req_id);
+            if(cas_success) return true;
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        }
+
+        return false;
+    }
+    bool Release_lock(std::string lock_name){
+        auto lock_value=std::to_string(raft_node_->node_id_);
+        int64_t cas_req_id = Cas(lock_name, lock_value, "");
+        if (cas_req_id == -1) {
+            // std::cout << "\n>>> 释放锁请求提交失败\n";
+            return false;
+        }
+        bool cas_success = get_reply_by_id(cas_req_id);
+        return cas_success;
+    }
+
 private:
     KvStore& kv_store_;
     std::shared_ptr<RaftNode> raft_node_;

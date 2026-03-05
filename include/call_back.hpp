@@ -70,7 +70,7 @@ public:
     bool trigger_by_logentry(const LogEntry& entry) {
         auto it = invokes_.find(entry.command_type);
         if (it != invokes_.end()) {
-            spdlog::debug("[Trigger] 处理 LogEntry | 命令类型: {}", entry.command_type);
+            // spdlog::debug("[Trigger] 处理 LogEntry | 命令类型: {}", entry.command_type);
             return it->second(entry.buffer);
         } else {
             spdlog::error("[Error] LogEntry命令类型未注册: {}", entry.command_type);

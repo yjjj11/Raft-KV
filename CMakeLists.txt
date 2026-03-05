@@ -1,6 +1,12 @@
 cmake_minimum_required(VERSION 3.13)
 project(external_demo)
 
+set(CMAKE_BUILD_TYPE Debug)
+
+# 2. 强制开启调试信息（即使不小心设为 Release 也生效）
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g -O0")
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -g")
+
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     add_compile_options(-w)  # -w 是屏蔽所有警告，-Wall 是开启所有警告，-Wno-xxx 是屏蔽特定警告
 endif()
@@ -69,17 +75,17 @@ target_link_libraries(kv_store
     Threads::Threads    # 现在能找到这个目标了
 )
 
-# add_executable(distributed_lock
-#      example/distributed_lock.cpp
-#      raftnode.cpp
-#      ${MRPC_SRC_FILES} 
-# )
+add_executable(distributed_lock
+     example/distributed_lock.cpp
+     raftnode.cpp
+     ${MRPC_SRC_FILES} 
+)
 
-# target_link_libraries(distributed_lock 
-#     PRIVATE  # 推荐添加PRIVATE，明确依赖作用域
-#     ${ZK_LIB}           # ZooKeeper 库（从子目录继承）
-#     Threads::Threads    # 现在能找到这个目标了
-# )
+target_link_libraries(distributed_lock 
+    PRIVATE  # 推荐添加PRIVATE，明确依赖作用域
+    ${ZK_LIB}           # ZooKeeper 库（从子目录继承）
+    Threads::Threads    # 现在能找到这个目标了
+)
 
 # add_executable(config_center
 #      example/config_center.cpp
