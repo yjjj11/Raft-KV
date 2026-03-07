@@ -1,4 +1,4 @@
-#include "task_scheduler.hpp"
+#include "scheduler_middle.hpp"
 #include <atomic>
 #include <thread>
 #include <iostream>
@@ -26,11 +26,11 @@ int main(int argc, char* argv[]) {
 
     system("clear");
 
-    scheduler.register_task_handler("data_process", [](const TaskPayload& payload) {
-        auto json=nlohmann::json::parse(payload);
-        std::cout << "Processing data task: " << json["data"] << std::endl;
-        return true;
-    });
+    // scheduler.register_task_handler("data_process", [](const TaskPayload& payload) {
+    //     auto json=nlohmann::json::parse(payload);
+    //     std::cout << "Processing data task: " << json["data"] << std::endl;
+    //     return true;
+    // });
     std::cout << "注册任务处理函数完成" << std::endl;
 
     node->server_.reg_func("make_and_submit", [&](const std::string& type, const std::string& payload) {

@@ -5,10 +5,15 @@
 ## 🎯 项目定位
 
 不同于单一的分布式应用，本项目核心在于 **Raft 共识引擎的实现**。它提供了一套标准的状态机接口，支持多种分布式场景：
-- **分布式 KV 存储** (已实现，作为第一个示例应用)
-- **分布式锁服务** (已实现，支持带超时机制的分布式锁)
-- **配置中心** (已实现，支持配置监听和版本管理)
-- **分布式任务调度** (计划中)
+## 🚧 分布式应用实现路线图 (Roadmap)
+
+- [x] **Raft 核心框架实现**
+- [x] **[示例应用: 分布式 KV 存储](#kv-store-guide)**
+- [x] **[业务扩展: 实现分布式锁服务（支持超时机制）](#distributed-lock-guide)**
+- [x] **[业务扩展: 实现分布式配置中心（支持配置监听）](#config-center-guide)**
+- [x] **[业务扩展: 实现分布式任务调度系统](#task-scheduler-guide)**
+- [ ] **性能优化**: 接入磁盘持久化 (`save_state`/`load_state`)。
+- [ ] **功能增强**: 实现日志压缩 (Snapshotting)。
 
 ## 🌟 核心特性
 
@@ -18,28 +23,39 @@
   - **标准的 Raft 协议**: 完整实现领导者选举、日志复制、心跳维护及安全性约束。
 - **易扩展的状态机接口**: 通过简单的回调机制即可接入不同的业务逻辑。
 - **多场景支持**: 项目结构设计支持在 `example/` 下扩展多个独立的分布式业务案例。
+- **响应式监听 (WATCH)**: 业务组件可以监听特定前缀的 Key 变化，实现事件驱动的分布式应用。
+
+## 🧠 设计哲学 (Design Philosophy)
+
+在构建本项目时，我们始终遵循分布式系统的核心原则：
+
+1. **确定性 (Determinism)**: 通过 Leader 注入逻辑时间戳，确保分布式状态机在所有节点上产生完全一致的结果，解决了时钟漂移带来的过期逻辑冲突。
+2. **共识与业务解耦**: 引入专用的 `apply_thread`。Raft 引擎只负责“达成共识”，而耗时的业务逻辑（如分布式锁的阻塞、任务执行）由独立线程异步处理，确保了 Leader 心跳的稳定性。
+3. **极简接入**: 开发者只需实现一个简单的回调函数，即可将单机业务瞬间提升为分布式高可用系统。
 
 ## 📂 项目结构
 
 ```text
 .
-├── Asio_mrpc/          # 底层高性能 RPC 库 (依赖 Boost.Asio)
-├── include/            # 核心头文件目录
-│   ├── raftnode.hpp    # Raft 共识引擎核心逻辑实现 (重点)
-│   ├── struct.hpp      # Raft RPC 消息结构体定义
-│   ├── call_back.hpp   # 回调函数注册与管理工具类
-│   ├── kv_store.hpp    # KV 存储实现
-│   ├── distributed_lock.hpp  # 分布式锁实现
-│   └── config_center.hpp     # 配置中心实现
-├── raftnode.cpp        # Raft 共识引擎核心逻辑实现
-├── example/            # 基于 Raft 引擎构建的分布式业务案例
-│   ├── kv_store.cpp    # 案例 1: 交互式 KV 存储系统
-│   ├── distributed_lock.cpp  # 案例 2: 分布式锁服务（支持超时机制）
-│   ├── config_center.cpp     # 案例 3: 分布式配置中心（支持配置监听）
-│   ├── node.cpp        # 通用 Raft 节点实现（用于 run.sh 管理）
-│   └── test_callback.cpp     # 回调函数测试示例
-├── run.sh              # 节点管理工具脚本
-└── CMakeLists.txt      # 构建配置文件
+├── raftnode.cpp            # Raft 共识引擎核心逻辑实现
+├── CMakeLists.txt          # 项目构建配置文件
+├── run.sh                  # 一键启动测试脚本
+├── include/                # 核心头文件与业务组件定义
+│   ├── raftnode.hpp        # Raft 节点定义
+│   ├── struct.hpp          # Raft RPC 消息结构体
+│   ├── kv_store.hpp        # KV 存储服务组件
+│   ├── config_center.hpp   # 配置中心组件
+│   ├── task_scheduler.hpp  # 任务调度核心逻辑
+│   ├── excutor.hpp         # 任务执行器组件
+│   └── scheduler_middle.hpp # 调度器中间层实现
+└── example/                # 基于框架构建的分布式业务案例
+    ├── node.cpp            # Raft 节点启动基础示例
+    ├── kv_store.cpp        # 案例 1: 分布式 KV 存储应用
+    ├── distributed_lock.cpp # 案例 2: 分布式锁应用
+    ├── config_center.cpp   # 案例 3: 分布式配置中心应用
+    ├── task_scheduler_server.cpp # 案例 4: 任务调度服务端
+    ├── task_executor.cpp   # 案例 4: 任务执行器应用
+    └── task_sys_client.cpp # 案例 4: 任务调度客户端示例
 ```
 
 ## 🛠️ 环境依赖
@@ -82,15 +98,6 @@ make -j
 2. 观察日志变化来验证 Raft 协议的容错能力
 3. 测试网络分区、节点故障等异常情况下的一致性保证
 4. 根据logs/node*.log来查看节点日志，验证Raft协议的正确性
-## 🚧 分布式应用实现路线图 (Roadmap)
-
-- [x] **Raft 核心框架实现**
-- [x] **[示例应用: 分布式 KV 存储](#kv-store-guide)**
-- [x] **[业务扩展: 实现分布式锁服务（支持超时机制）](#distributed-lock-guide)**
-- [x] **[业务扩展: 实现分布式配置中心（支持配置监听）](#config-center-guide)**
-- [ ] **业务扩展: 实现分布式任务调度系统**
-- [ ] **性能优化**: 接入磁盘持久化 (`save_state`/`load_state`)。
-- [ ] **功能增强**: 实现日志压缩 (Snapshotting)。
 
 ## 🚀 快速开始 (以 KV 存储为例) {#kv-store-guide}
 
@@ -185,9 +192,31 @@ g_config_center.WATCH_DELETE("database", [](const std::string& key) {
 
 
 
+## 🚀 分布式任务调度系统使用指南 
+
+### 启动任务调度系统的调度管理节点
+```bash
+./bin/task_scheduler_server 0 127.0.0.1 8000 1 127.0.0.1:8001 127.0.0.1:8002
+./bin/task_scheduler_server 1 127.0.0.1 8001 1 127.0.0.1:8000 127.0.0.1:8002
+```
+### 启动任务调度系统的任务执行节点
+```bash
+./bin/task_executor 2 127.0.0.1 8002 1 127.0.0.1:8000 127.0.0.1:8001
+```
+
+### 启动系统客户端
+```bash
+./bin/task_client 
+```
+## 在客户端提交一个任务后
+![任务调度系统客户端界面](./picture/task_sys_client.png)
+![任务调度系统服务端界面](./picture/task_scheduler_server.png)
+![任务调度系统任务执行节点界面](./picture/task_executor.png)
+
+
+
 ## 🤝 贡献与反馈
 
 如果你有新的分布式业务场景想法，欢迎通过 Issue 或 Pull Request 提交！
-
 ---
 *本项目基于个人开发的 [mrpc](https://github.com/yjjj11/Asio_mrpc) 库构建。*

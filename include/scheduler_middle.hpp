@@ -1,12 +1,8 @@
-
 #pragma once
 #include <string>
 #include <chrono>
 #include <thread>
-#include <functional>
 #include <memory>
-#include <queue>
-#include <mutex>
 #include <optional>
 #include <atomic>
 #include <spdlog/spdlog.h>
@@ -18,6 +14,11 @@
 #include <random>
 
 using json = nlohmann::json;
+
+// 补充必要的类型定义（适配你的环境）
+using TaskId = std::string;
+using ExecuteTimeMs = int64_t;
+using ExecutorId = std::string;
 
 // ========== 1. 任务调度器类（仅负责调度和分发，无执行逻辑） ==========
 class TaskScheduler {
@@ -33,54 +34,9 @@ public:
         kv_service_->WATCH("put", "task_content_and_status_update", [this](const std::string& key, const std::string& value) {
             if (key.substr(0, 5) == "task:") {
                 return this->on_task_updated(key, value);
-            } else if (key.substr(0, 12) == "task_status:") {
-                return this->on_task_status_updated(key, value);
-            }
+            } 
             return true;
-        });
-
-        kv_service_->WATCH("PutWithTTL", "task_content_and_status_update_ttl", [this](const std::string& key, const std::string& value, long long ttl_ms) {
-            (void)ttl_ms;
-            if (key.substr(0, 5) == "task:") {
-                return this->on_task_updated(key, value);
-            } else if (key.substr(0, 12) == "task_status:") {
-                return this->on_task_status_updated(key, value);
-            }
-            return true;
-        });
-
-        kv_service_->WATCH("Cas", "task_content_and_status_update_cas", [this](const std::string& key, const std::string& expected, const std::string& new_val, bool success) {
-            if (success) {
-                if (key.substr(0, 5) == "task:") {
-                    return this->on_task_updated(key, new_val);
-                } else if (key.substr(0, 12) == "task_status:") {
-                    return this->on_task_status_updated(key, new_val);
-                }
-            }
-            return true;
-        });
-
-        kv_service_->WATCH("CasWithTTL", "task_content_and_status_update_cas_ttl", [this](const std::string& key, const std::string& expected, const std::string& new_val, long long ttl_ms, bool success) {
-            (void)ttl_ms;
-            if (success) {
-                if (key.substr(0, 5) == "task:") {
-                    return this->on_task_updated(key, new_val);
-                } else if (key.substr(0, 12) == "task_status:") {
-                    return this->on_task_status_updated(key, new_val);
-                }
-            }
-            return true;
-        });
-
-        kv_service_->WATCH("Del", "task_removed", [this](const std::string& key) {
-            if (key.substr(0, 5) == "task:") {
-                return this->on_task_removed(key);
-            } else if (key.substr(0, 12) == "task_status:") {
-                return this->on_task_status_removed(key);
-            }
-            return true;
-        });
-        
+        });//只注册提交任务后提交状态和更新列表的watch
         spdlog::info("任务调度器 - 回调注册完成");
     }
 
@@ -88,11 +44,10 @@ public:
         stop();
     }
 
-    // 初始化调度器（加载Pending任务到内存队列）
+    // 初始化调度器（仅初始化锁，不再加载任务到内存队列）
     void initialize_scheduler() {
         kv_service_->Put("scheduler:leader_lock", std::to_string(kv_service_->node_id_));
         spdlog::info("任务调度器 - 调度锁初始化获取完成");
-        restore_tasks_from_kv();
     }
 
     // 判断当前节点是否为Leader
@@ -104,15 +59,10 @@ public:
         return raft_node_->is_leader(raft_node_->node_id_);
     }
 
-    // 添加定时任务（仅存储，不执行）
+    // 添加定时任务（仅存储+设置Pending状态，后续状态由执行器修改）
     bool schedule_task(const ScheduledTask& task) {
         try {
             // 检查任务是否已存在
-            std::string existing_task = kv_service_->Get("task:" + task.id);
-            if (!existing_task.empty()) {
-                spdlog::warn("任务调度器 - 任务 {} 已存在，执行更新逻辑", task.id);
-                return update_task(task);
-            }
 
             // 存储任务数据
             json task_json = task;
@@ -122,7 +72,7 @@ public:
                 return false;
             }
 
-            // 设置任务状态为Pending
+            // 调度器仅负责设置初始Pending状态，后续状态由执行器处理
             TaskStatusInfo status_info;
             status_info.status = TaskStatus::Pending;
             status_info.created_at = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -132,35 +82,15 @@ public:
             json status_json = status_info;
             int64_t status_result = kv_service_->Put("task_status:" + task.id, status_json.dump());
             if (status_result == -1) {
-                spdlog::error("任务调度器 - 存储任务 {} 状态失败", task.id);
+                spdlog::error("任务调度器 - 存储任务 {} 初始状态失败", task.id);
                 return false;
             }
 
             // 更新任务列表
             update_task_list(task.id, true);
-
-            spdlog::info("任务调度器 - 任务 {} 已添加，执行时间: {}", task.id, task.execute_at);
             return true;
         } catch (const std::exception& e) {
             spdlog::error("任务调度器 - 添加任务 {} 异常: {}", task.id, e.what());
-            return false;
-        }
-    }
-
-    // 更新任务
-    bool update_task(const ScheduledTask& task) {
-        try {
-            json task_json = task;
-            int64_t put_result = kv_service_->Put("task:" + task.id, task_json.dump());
-            if (put_result == -1) {
-                spdlog::error("任务调度器 - 更新任务 {} 失败", task.id);
-                return false;
-            }
-
-            spdlog::info("任务调度器 - 任务 {} 已更新，执行时间: {}", task.id, task.execute_at);
-            return true;
-        } catch (const std::exception& e) {
-            spdlog::error("任务调度器 - 更新任务 {} 异常: {}", task.id, e.what());
             return false;
         }
     }
@@ -182,14 +112,11 @@ public:
                 return false;
             }
 
-            // 删除执行器分配信息
-            kv_service_->Del("task/" + task_id + "/executorid");
+            // 从执行器任务列表中移除
+            remove_task_from_executor_list(task_id);
 
             // 更新任务列表
             update_task_list(task_id, false);
-
-            // 从内存队列移除
-            remove_task_from_memory_queue(task_id);
 
             spdlog::info("任务调度器 - 任务 {} 已取消", task_id);
             return true;
@@ -279,7 +206,7 @@ public:
             task.payload = "{\"type\":\"" + task_type + "\",\"data\":\"" + task_data + "\"}";
         }
         
-        // 默认状态
+        // 默认状态（仅内存标识，实际以KV中Pending为准）
         task.status = TaskStatus::Pending;
         
         spdlog::info("任务调度器 - 创建任务 {} (类型: {}, 延迟: {}s)", task.id, task_type, delay_seconds);
@@ -294,64 +221,93 @@ public:
         return make_task_from_string(task_type, task_data.dump(), delay_seconds, task_id);
     }
 
-    // 获取待分发的任务数量
+    // 获取待分发的任务数量（直接从KV读取）
     size_t get_pending_task_count() {
-        std::lock_guard<std::mutex> lock(pending_tasks_mutex_);
-        return pending_tasks_.size();
-    }
-
-private:
-    // 任务队列项（仅用于调度）
-    struct TaskQueueItem {
-        TaskId id;
-        ExecuteTimeMs execute_at;
-        TaskStatus status;
-        
-        bool operator<(const TaskQueueItem& other) const {
-            return execute_at > other.execute_at; // 最小堆，最早执行的任务在顶部
-        }
-    };
-
-    // 从KV恢复Pending任务到内存队列
-    void restore_tasks_from_kv() {
         try {
             std::string tasks_list_str = kv_service_->Get("scheduler:tasks_list");
             if (tasks_list_str.empty()) {
-                spdlog::info("任务调度器 - 未找到任务列表，跳过恢复");
-                return;
+                return 0;
             }
             
             json tasks_list = json::parse(tasks_list_str);
             if (!tasks_list.is_array()) {
-                spdlog::error("任务调度器 - 任务列表格式错误，跳过恢复");
-                return;
+                return 0;
             }
             
+            size_t count = 0;
+            auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+            
             for (const auto& task_id : tasks_list) {
-                try {
-                    TaskId tid = task_id.get<std::string>();
-                    std::string task_str = kv_service_->Get("task:" + tid);
-                    if (task_str.empty()) {
-                        spdlog::warn("任务调度器 - 任务 {} 不存在，跳过恢复", tid);
-                        continue;
-                    }
-                    
+                TaskId tid = task_id.get<std::string>();
+                // 检查任务状态和执行时间
+                auto status_opt = get_task_status(tid);
+                std::string task_str = kv_service_->Get("task:" + tid);
+                
+                if (status_opt.has_value() && status_opt.value().status == TaskStatus::Pending && !task_str.empty()) {
                     ScheduledTask task = json::parse(task_str).get<ScheduledTask>();
-                    auto status_opt = get_task_status(tid);
-                    
-                    // 仅加载Pending状态任务
-                    if (status_opt.has_value() && status_opt.value().status == TaskStatus::Pending) {
-                        add_task_to_memory_queue(task);
-                        spdlog::info("任务调度器 - 恢复Pending任务 {} 到内存队列", tid);
-                    } else {
-                        spdlog::info("任务调度器 - 任务 {} 状态非Pending，跳过恢复", tid);
+                    if (task.execute_at <= now) {
+                        count++;
                     }
-                } catch (const std::exception& e) {
-                    spdlog::error("任务调度器 - 解析任务 {} 失败: {}", task_id.get<std::string>(), e.what());
                 }
             }
+            return count;
         } catch (const std::exception& e) {
-            spdlog::error("任务调度器 - 恢复任务异常: {}", e.what());
+            spdlog::error("任务调度器 - 获取待分发任务数量异常: {}", e.what());
+            return 0;
+        }
+    }
+
+private:
+    // ========== KV事件回调 ==========
+    bool on_task_updated(const std::string& key, const std::string& value) {
+        try {
+            spdlog::debug("任务调度器 - 任务内容更新: {}", key);
+            // 仅记录日志，无状态操作
+
+             return true;
+        } catch (const std::exception& e) {
+            spdlog::error("任务调度器 - 处理任务更新事件异常: {}", e.what());
+            return false;
+        }
+    }
+
+
+    // 从执行器任务列表中移除指定任务
+    void remove_task_from_executor_list(const TaskId& task_id) {
+        // 简单遍历所有执行器（实际场景可优化为存储任务-执行器映射）
+        for (int i = 0; i < 1; ++i) { // 假设有3个执行器
+            ExecutorId executor_id = "executor_" + std::to_string(i);
+            std::string executor_key = "executor:" + executor_id;
+            
+            kv_service_->Get_lock(executor_key, 2000, 2000);
+            try {
+                std::string tasks_str = kv_service_->Get(executor_key);
+                if (tasks_str.empty()) {
+                    kv_service_->Release_lock(executor_key);
+                    continue;
+                }
+                
+                json tasks_array = json::parse(tasks_str);
+                if (!tasks_array.is_array()) {
+                    kv_service_->Release_lock(executor_key);
+                    continue;
+                }
+                
+                // 过滤掉目标任务ID
+                json new_tasks_array = json::array();
+                for (const auto& tid : tasks_array) {
+                    if (tid.get<std::string>() != task_id) {
+                        new_tasks_array.push_back(tid);
+                    }
+                }
+                
+                // 更新执行器任务列表
+                kv_service_->Put(executor_key, new_tasks_array.dump());
+            } catch (const std::exception& e) {
+                spdlog::error("任务调度器 - 从执行器列表移除任务 {} 失败: {}", task_id, e.what());
+            }
+            kv_service_->Release_lock(executor_key);
         }
     }
 
@@ -370,116 +326,147 @@ private:
         spdlog::info("任务调度器 - 调度线程停止");
     }
 
-    // 分发待执行的Pending任务（核心逻辑）
+    // 分发待执行的Pending任务（核心逻辑：直接操作KV，不修改状态）
     void distribute_pending_tasks() {
         auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::system_clock::now().time_since_epoch()).count();
 
-        std::vector<TaskQueueItem> ready_tasks;
+        // 获取所有任务列表
+        std::string tasks_list_str = kv_service_->Get("scheduler:tasks_list");
+        if (tasks_list_str.empty()) {
+            return;
+        }
         
-        // 筛选出到达执行时间的任务
-        {
-            std::lock_guard<std::mutex> lock(pending_tasks_mutex_);
-            while (!pending_tasks_.empty()) {
-                TaskQueueItem top = pending_tasks_.top();
+        json tasks_list = json::parse(tasks_list_str);
+        if (!tasks_list.is_array()) {
+            spdlog::error("任务调度器 - 任务列表格式错误");
+            return;
+        }
+        
+        // 加锁保证分发过程原子性
+        kv_service_->Get_lock("executor", 2000, 2000);
+        
+        // 遍历所有任务，筛选出到达执行时间的Pending任务
+        for (const auto& task_id : tasks_list) {
+            try {
+                TaskId tid = task_id.get<std::string>();
                 
-                // 执行时间未到，退出循环
-                if (top.execute_at > now) {
-                    break;
-                }
-
-                // 校验任务状态（确保是Pending）
-                auto status_opt = get_task_status(top.id);
-                if (status_opt.has_value() && status_opt.value().status != TaskStatus::Pending) {
-                    spdlog::info("任务调度器 - 任务 {} 状态非Pending，从队列移除", top.id);
-                    pending_tasks_.pop();
+                // 1. 检查任务状态（仅处理Pending状态，状态由执行器修改）
+                auto status_opt = get_task_status(tid);
+                if (!status_opt.has_value() || status_opt.value().status != TaskStatus::Pending) {
                     continue;
                 }
                 
-                // 加入待分发列表
-                ready_tasks.emplace_back(std::move(top));
-                pending_tasks_.pop();
+                // 2. 获取任务信息，检查执行时间
+                std::string task_str = kv_service_->Get("task:" + tid);
+                if (task_str.empty()) {
+                    continue;
+                }
+                
+                ScheduledTask task = json::parse(task_str).get<ScheduledTask>();
+                if (task.execute_at > now) {
+                    continue; // 执行时间未到
+                }
+                
+                // 3. 分发任务到执行器（不修改任务状态）
+                distribute_task_to_executor(tid);
+                
+            } catch (const std::exception& e) {
+                spdlog::error("任务调度器 - 处理任务 {} 分发异常: {}", task_id.get<std::string>(), e.what());
             }
         }
-
-        // 分发任务到执行器
-        for (const auto& task_item : ready_tasks) {
-            distribute_task_to_executor(task_item.id);
-        }
+        
+        kv_service_->Release_lock("executor"); // 修复原代码拼写错误
     }
 
-    // 分发单个任务到执行器（核心：写入KV的task/{id}/executorid键值对）
+    // 分发单个任务到执行器（仅写入executor:{id}数组，不修改任务状态）
     void distribute_task_to_executor(const TaskId& task_id) {
         try {
-            // 简单的执行器分配策略：轮询分配（你可以根据实际需求修改）
+            // 简单的执行器分配策略：轮询分配
             static std::atomic<int> executor_index = 0;
-            ExecutorId executor_id = "executor_" + std::to_string(executor_index++ % 3); // 假设有3个执行器
+            int executor_count = 3; // 假设有3个执行器
+            ExecutorId executor_id = "executor_" + std::to_string(executor_index++ % executor_count);
+            std::string executor_key = "executor:" + executor_id;
             
-            // 写入KV：task/{id}/executorid = executor_id
-            int64_t put_result = kv_service_->Put("task/" + task_id + "/executorid", executor_id);
-            if (put_result == -1) {
-                spdlog::error("任务调度器 - 分发任务 {} 到执行器 {} 失败", task_id, executor_id);
-                // 重新加入队列
-                add_task_back_to_queue(task_id);
-                return;
+            // 1. 获取执行器当前的任务列表
+            std::string tasks_str = kv_service_->Get(executor_key);
+            json tasks_array = json::array();
+            
+            if (!tasks_str.empty()) {
+                tasks_array = json::parse(tasks_str);
+                if (!tasks_array.is_array()) {
+                    tasks_array = json::array();
+                }
             }
-
-            // 更新任务状态为Executing
-            update_task_status(task_id, TaskStatus::Executing);
-
-            spdlog::info("任务调度器 - 任务 {} 已分发到执行器 {}", task_id, executor_id);
+            
+            // 2. 检查任务是否已存在，避免重复添加
+            bool exists = false;
+            for (const auto& tid : tasks_array) {
+                if (tid.get<std::string>() == task_id) {
+                    exists = true;
+                    break;
+                }
+            }
+            
+            if (!exists) {
+                // 3. 添加任务ID到执行器列表（仅分发，不修改状态）
+                tasks_array.push_back(task_id);
+                int64_t put_result = kv_service_->Put(executor_key, tasks_array.dump());
+                update_task_status(task_id, TaskStatus::Executing);
+                if (put_result == -1) {
+                    spdlog::error("任务调度器 - 分发任务 {} 到执行器 {} 失败", task_id, executor_id);
+                    return;
+                }
+                
+                spdlog::info("任务调度器 - 任务 {} 已分发到执行器 {}，执行器任务数: {}", 
+                             task_id, executor_id, tasks_array.size());
+            }
+            
         } catch (const std::exception& e) {
             spdlog::error("任务调度器 - 分发任务 {} 异常: {}", task_id, e.what());
-            // 重新加入队列
-            add_task_back_to_queue(task_id);
+            update_task_status(task_id, TaskStatus::Pending); 
         }
     }
 
-    // 任务分发失败时重新加入队列
-    void add_task_back_to_queue(const TaskId& task_id) {
+    void update_task_status(const TaskId& task_id, TaskStatus new_status, const std::string& error_msg = "") {
         try {
-            std::string task_str = kv_service_->Get("task:" + task_id);
-            if (task_str.empty()) {
-                spdlog::error("任务调度器 - 任务 {} 不存在，无法重新加入队列", task_id);
-                return;
+            // 1. 获取当前状态
+            std::string status_str = kv_service_->Get("task_status:" + task_id);
+            TaskStatusInfo status_info;
+            auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+            
+            if (!status_str.empty()) {
+                status_info = json::parse(status_str).get<TaskStatusInfo>();
+            } else {
+                // 异常情况：状态不存在，初始化基础信息
+                status_info.created_at = now;
+                status_info.status = TaskStatus::Pending;
             }
             
-            ScheduledTask task = json::parse(task_str).get<ScheduledTask>();
-            add_task_to_memory_queue(task);
-            spdlog::info("任务调度器 - 任务 {} 已重新加入调度队列", task_id);
-        } catch (const std::exception& e) {
-            spdlog::error("任务调度器 - 任务 {} 重新加入队列失败: {}", task_id, e.what());
-        }
-    }
-
-    // 添加任务到内存队列
-    void add_task_to_memory_queue(const ScheduledTask& task) {
-        TaskQueueItem item;
-        item.id = task.id;
-        item.execute_at = task.execute_at;
-        item.status = task.status;
-        
-        std::lock_guard<std::mutex> lock(pending_tasks_mutex_);
-        pending_tasks_.push(item);
-    }
-
-    // 从内存队列移除任务
-    void remove_task_from_memory_queue(const TaskId& task_id) {
-        std::lock_guard<std::mutex> lock(pending_tasks_mutex_);
-        
-        std::priority_queue<TaskQueueItem> temp_queue;
-        while (!pending_tasks_.empty()) {
-            TaskQueueItem item = pending_tasks_.top();
-            pending_tasks_.pop();
-            if (item.id != task_id) {
-                temp_queue.push(item);
+            // 2. 更新状态信息
+            status_info.status = new_status;
+            status_info.updated_at = now;
+            
+            // 状态流转逻辑
+            if (new_status == TaskStatus::Executing) {
+                status_info.started_at = now; // 记录开始时间
             }
+            // 3. 保存到KV
+            json status_json = status_info;
+            int64_t put_result = kv_service_->Put("task_status:" + task_id, status_json.dump());
+            if (put_result == -1) {
+                spdlog::error("任务调度器 - 分发任务 {} 状态失败", task_id);
+            }
+            
+        } catch (const std::exception& e) {
+            spdlog::error("任务调度器 - 更新任务 {} 状态异常: {}", task_id, e.what());
         }
-        pending_tasks_ = std::move(temp_queue);
     }
 
     // 更新任务列表
     void update_task_list(const TaskId& task_id, bool add) {
+        kv_service_->Get_lock("tasklist", 2000, 2000);
         try {
             std::string tasks_list_str = kv_service_->Get("scheduler:tasks_list");
             json tasks_list = json::array();
@@ -519,118 +506,19 @@ private:
         } catch (const std::exception& e) {
             spdlog::error("任务调度器 - 更新任务列表失败: {}", e.what());
         }
+        kv_service_->Release_lock("tasklist");
     }
 
-    // 更新任务状态
-    void update_task_status(const TaskId& task_id, TaskStatus new_status, const std::string& error_msg = "") {
-        try {
-            TaskStatusInfo status_info;
-            auto current_status = get_task_status(task_id);
-            
-            if (current_status.has_value()) {
-                status_info = current_status.value();
-            } else {
-                status_info.created_at = std::chrono::duration_cast<std::chrono::milliseconds>(
-                    std::chrono::system_clock::now().time_since_epoch()).count();
-            }
-            
-            status_info.status = new_status;
-            status_info.updated_at = std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::system_clock::now().time_since_epoch()).count();
-            
-            if (new_status == TaskStatus::Executing && status_info.started_at == 0) {
-                status_info.started_at = status_info.updated_at;
-            } else if (new_status == TaskStatus::Completed || new_status == TaskStatus::Failed) {
-                status_info.completed_at = status_info.updated_at;
-            }
-            
-            if (!error_msg.empty()) {
-                status_info.error_message = error_msg;
-            }
-            
-            // 保存状态到KV
-            json status_json = status_info;
-            kv_service_->Put("task_status:" + task_id, status_json.dump());
-        } catch (const std::exception& e) {
-            spdlog::error("任务调度器 - 更新任务 {} 状态失败: {}", task_id, e.what());
-        }
-    }
-
-    // ========== KV事件回调 ==========
-    bool on_task_updated(const std::string& key, const std::string& value) {
-        try {
-            spdlog::debug("任务调度器 - 任务内容更新: {}", key);
-            ScheduledTask task = json::parse(value).get<ScheduledTask>();
-            
-            // 移除旧任务，重新添加（如果是Pending状态）
-            remove_task_from_memory_queue(task.id);
-            auto status_opt = get_task_status(task.id);
-            if (status_opt.has_value() && status_opt.value().status == TaskStatus::Pending) {
-                add_task_to_memory_queue(task);
-            }
-            
-            return true;
-        } catch (const std::exception& e) {
-            spdlog::error("任务调度器 - 处理任务更新事件异常: {}", e.what());
-            return false;
-        }
-    }
-
-    bool on_task_status_updated(const std::string& key, const std::string& value) {
-        try {
-            TaskId task_id = key.substr(12);
-            spdlog::debug("任务调度器 - 任务状态更新: {} -> {}", task_id, value);
-            
-            TaskStatusInfo status_info = json::parse(value).get<TaskStatusInfo>();
-            
-            // 非Pending状态，从内存队列移除
-            if (status_info.status != TaskStatus::Pending) {
-                remove_task_from_memory_queue(task_id);
-            }
-            
-            return true;
-        } catch (const std::exception& e) {
-            spdlog::error("任务调度器 - 处理任务状态更新事件异常: {}", e.what());
-            return false;
-        }
-    }
-
-    bool on_task_removed(const std::string& key) {
-        try {
-            TaskId task_id = key.substr(5);
-            spdlog::debug("任务调度器 - 任务删除事件: {}", task_id);
-            
-            remove_task_from_memory_queue(task_id);
-            return true;
-        } catch (const std::exception& e) {
-            spdlog::error("任务调度器 - 处理任务删除事件异常: {}", e.what());
-            return false;
-        }
-    }
-
-    bool on_task_status_removed(const std::string& key) {
-        try {
-            TaskId task_id = key.substr(12);
-            spdlog::debug("任务调度器 - 任务状态删除事件: {}", task_id);
-            return true;
-        } catch (const std::exception& e) {
-            spdlog::error("任务调度器 - 处理任务状态删除事件异常: {}", e.what());
-            return false;
-        }
-    }
-
-    // 成员变量
+   // 成员变量
     std::shared_ptr<KvService> kv_service_;
     std::shared_ptr<RaftNode> raft_node_;
     std::atomic<bool> stop_flag_;
     std::unique_ptr<std::thread> scheduler_thread_;
-    
-    // 待分发任务队列（最小堆）
-    std::priority_queue<TaskQueueItem> pending_tasks_;
-    mutable std::mutex pending_tasks_mutex_;
+
 };
 
 
+// 测试代码示例
 // 1. 创建KV和Raft节点
 // auto raft_node = std::make_shared<RaftNode>();
 // auto kv_service = std::make_shared<KvService>(raft_node);
@@ -645,18 +533,5 @@ private:
 //     scheduler.schedule_task(task);
 // }
 
-// // 3. 创建并启动执行器
-// TaskExecutor executor1(kv_service, "executor_0");
-// TaskExecutor executor2(kv_service, "executor_1");
-// TaskExecutor executor3(kv_service, "executor_2");
-
-// // 注册任务处理器
-// executor1.register_task_handler("test", [](const TaskPayload& payload) {
-//     spdlog::info("执行器 executor_0 处理任务: {}", payload);
-//     return true;
-// });
-
-// // 启动执行器
-// executor1.start();
-// executor2.start();
-// executor3.start();
+// // 3. 执行器逻辑示例（需自行实现）
+// // 执行器需：1.读取executor:{id}获取任务列表 2.修改任务状态 3.执行任务

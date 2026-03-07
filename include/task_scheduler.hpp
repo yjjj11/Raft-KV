@@ -14,20 +14,6 @@
 #include <spdlog/spdlog.h>
 
 using json = nlohmann::json;
-
-// 任务状态信息结构
-struct TaskStatusInfo {
-    TaskStatus status;
-    int64_t created_at;
-    int64_t updated_at;
-    int64_t started_at = 0;
-    int64_t completed_at = 0;
-    std::string error_message = "";
-};
-
-// 为 TaskStatusInfo 定义序列化/反序列化
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(TaskStatusInfo, status, created_at, updated_at, started_at, completed_at, error_message)
-
 // 任务调度管理器 - 恢复Leader判断逻辑，需手动启动
 class TaskScheduler {
 public:
@@ -265,11 +251,6 @@ public:
         spdlog::info("任务调度器已停止");
     }
 
-    // 注册任务处理器
-    void register_task_handler(const std::string& task_type, std::function<bool(const TaskPayload&)> handler) {
-        std::lock_guard<std::mutex> lock(handlers_mutex_);
-        task_handlers_[task_type] = handler;
-    }
 
     // 获取待执行的任务数量
     size_t get_pending_task_count() {
